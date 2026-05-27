@@ -1,5 +1,5 @@
-import psycopg2
-from psycopg2 import sql
+import psycopg as psycopg2
+from psycopg import sql
 import os
 from config import NEON_CONNECTION_STRING, DEBUG_MODE
 
