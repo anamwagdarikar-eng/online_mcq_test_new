@@ -1,11 +1,15 @@
+import os
+import sys
+
+# CRITICAL: Add project root to Python path FIRST, before any other imports
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+# Now safe to import other modules
 import streamlit as st
 import time
-import sys
-import os
 from datetime import datetime, timedelta
-
-# Add project root to Python path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.test_management import get_test_management
 from utils.security import get_security

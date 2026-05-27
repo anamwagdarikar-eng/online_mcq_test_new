@@ -1,10 +1,14 @@
-import streamlit as st
-import sys
 import os
-from datetime import datetime, timedelta
+import sys
 
-# Add project root to Python path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# CRITICAL: Add project root to Python path FIRST, before any other imports
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+# Now safe to import other modules
+import streamlit as st
+from datetime import datetime, timedelta
 
 from database import Database
 from utils.auth import get_auth

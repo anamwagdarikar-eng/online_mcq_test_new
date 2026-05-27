@@ -1,13 +1,17 @@
-import streamlit as st
-import sys
 import os
-from database import Database
+import sys
 
-# Add project root to Python path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# CRITICAL: Add project root to Python path FIRST, before any other imports
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
-from utils.analytics import get_analytics
+# Now safe to import other modules
+import streamlit as st
 import pandas as pd
+
+from database import Database
+from utils.analytics import get_analytics
 
 st.set_page_config(page_title="Faculty Panel", layout="wide")
 

@@ -1,7 +1,7 @@
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from ..database import Database
+from database import Database
 from datetime import datetime, timedelta
 
 class Analytics:

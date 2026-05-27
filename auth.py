@@ -1,8 +1,8 @@
 import bcrypt
 import jwt
 import datetime
-from ..config import SECRET_KEY, MAX_LOGIN_ATTEMPTS, LOCKOUT_DURATION
-from ..database import Database
+from config import SECRET_KEY, MAX_LOGIN_ATTEMPTS, LOCKOUT_DURATION
+from database import Database
 import hmac
 import hashlib
 
