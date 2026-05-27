@@ -3,8 +3,8 @@ import uuid
 import requests
 import json
 from datetime import datetime
-from database import Database
-from config import ENABLE_IP_LOGGING, DISABLE_COPY_PASTE, SINGLE_DEVICE_LOGIN, MAX_TAB_SWITCHES
+from ..database import Database
+from ..config import ENABLE_IP_LOGGING, DISABLE_COPY_PASTE, SINGLE_DEVICE_LOGIN, MAX_TAB_SWITCHES
 
 class Security:
     def __init__(self):

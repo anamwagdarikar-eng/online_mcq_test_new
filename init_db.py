@@ -7,6 +7,10 @@ Run this script to initialize the PostgreSQL/NeonDB database
 import sys
 import os
 from dotenv import load_dotenv
+
+# Add project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from database import Database
 
 load_dotenv()

@@ -1,7 +1,7 @@
 import random
-from database import Database
+from ..database import Database
 from datetime import datetime, timedelta
-from config import AUTO_SUBMIT_ON_TIMEOUT, ENABLE_NEGATIVE_MARKING, NEGATIVE_MARKING_PERCENTAGE
+from ..config import AUTO_SUBMIT_ON_TIMEOUT, ENABLE_NEGATIVE_MARKING, NEGATIVE_MARKING_PERCENTAGE
 
 class TestManagement:
     def __init__(self):
