@@ -1,5 +1,11 @@
 import streamlit as st
+import sys
+import os
 from database import Database
+
+# Add project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from utils.analytics import get_analytics
 import pandas as pd
 

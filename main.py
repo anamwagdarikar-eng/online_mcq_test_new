@@ -1,6 +1,11 @@
 import streamlit as st
 import os
+import sys
 from datetime import datetime, timedelta
+
+# Add project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from config import APP_NAME, COLLEGE_NAME, ACADEMIC_YEAR, SESSION_TIMEOUT
 from utils.auth import get_auth
 from utils.security import get_security

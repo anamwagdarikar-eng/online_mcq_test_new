@@ -4,6 +4,12 @@ Sample Data Seeding Script
 Run this to populate the database with sample data for testing
 """
 
+import sys
+import os
+
+# Add project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from database import Database
 from utils.auth import get_auth
 from datetime import datetime, timedelta

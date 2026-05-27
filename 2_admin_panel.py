@@ -1,5 +1,11 @@
 import streamlit as st
+import sys
+import os
 from datetime import datetime, timedelta
+
+# Add project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from database import Database
 from utils.auth import get_auth
 from utils.test_management import get_test_management
