@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: mcq_postgres
+    environment:
+      POSTGRES_USER: mcq_user
+      POSTGRES_PASSWORD: SecurePassword123!
+      POSTGRES_DB: mcq_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcq_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mcq_network
+
+  # Streamlit Application
+  app:
+    build: .
+    container_name: mcq_app
+    ports:
+      - "8501:8501"
+    environment:
+      DATABASE_URL: postgresql://mcq_user:SecurePassword123!@postgres:5432/mcq_db
+      SECRET_KEY: your-secret-key-change-in-production
+      COLLEGE_NAME: "XYZ Engineering College"
+      DEBUG_MODE: "False"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+    networks:
+      - mcq_network
+    command: >
+      sh -c "
+      echo 'Initializing database...' &&
+      python init_db.py &&
+      echo 'Starting application...' &&
+      streamlit run main.py
+      "
+
+  # Optional: pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: mcq_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@college.edu
+      PGADMIN_DEFAULT_PASSWORD: pgAdmin123!
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - mcq_network
+
+networks:
+  mcq_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

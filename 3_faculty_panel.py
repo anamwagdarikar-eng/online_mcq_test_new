@@ -1,0 +1,309 @@
+import streamlit as st
+from database import Database
+from utils.analytics import get_analytics
+import pandas as pd
+
+st.set_page_config(page_title="Faculty Panel", layout="wide")
+
+# Check if faculty or admin
+if 'user_role' not in st.session_state or st.session_state.user_role not in ['faculty', 'admin']:
+    st.error("Access Denied - Faculty/Admin only")
+    st.stop()
+
+st.markdown("# 👨‍🏫 Faculty Panel")
+
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📋 Manage Questions",
+    "📝 Manage Tests",
+    "📊 Test Analytics",
+    "📤 Import Questions"
+])
+
+with tab1:
+    st.markdown("## Question Management")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Add New Question")
+        
+        # Get subjects
+        db = Database()
+        if db.connect():
+            subjects = db.fetch_all("SELECT subject_id, subject_name FROM subjects")
+            db.disconnect()
+            subject_options = {s[1]: s[0] for s in subjects}
+        else:
+            subject_options = {}
+        
+        with st.form("add_question_form"):
+            subject_name = st.selectbox("Subject *", list(subject_options.keys()) if subject_options else [])
+            subject_id = subject_options.get(subject_name)
+            
+            question_text = st.text_area("Question *")
+            
+            difficulty = st.selectbox("Difficulty Level", ["Easy", "Medium", "Hard"])
+            marks = st.number_input("Marks", min_value=1, max_value=100, value=1)
+            
+            col_opt1, col_opt2 = st.columns(2)
+            with col_opt1:
+                negative_marks = st.number_input("Negative Marks", min_value=0.0, max_value=float(marks), 
+                                                value=0.25, step=0.25)
+            with col_opt2:
+                question_type = st.selectbox("Question Type", ["MCQ", "MSQ", "NUMERICAL"])
+            
+            st.markdown("**Options:**")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                opt_a = st.text_input("Option A *")
+                opt_c = st.text_input("Option C *")
+            with col_b:
+                opt_b = st.text_input("Option B *")
+                opt_d = st.text_input("Option D *")
+            
+            correct_ans = st.selectbox("Correct Answer *", ["A", "B", "C", "D"])
+            
+            explanation = st.text_area("Explanation (optional)")
+            
+            if st.form_submit_button("Add Question", use_container_width=True):
+                if question_text and opt_a and opt_b and opt_c and opt_d and subject_id:
+                    db = Database()
+                    if db.connect():
+                        db.execute_query(
+                            """INSERT INTO questions 
+                               (subject_id, question_text, question_type, difficulty_level, 
+                                marks, negative_marks, option_a, option_b, option_c, option_d,
+                                correct_answer, explanation, created_by)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (subject_id, question_text, question_type, difficulty, marks, 
+                             negative_marks, opt_a, opt_b, opt_c, opt_d, correct_ans, 
+                             explanation, st.session_state.user_id)
+                        )
+                        db.disconnect()
+                        st.success("✓ Question added successfully!")
+                else:
+                    st.error("Please fill all required fields")
+    
+    with col2:
+        st.markdown("### Question Bank")
+        
+        db = Database()
+        if db.connect():
+            questions = db.fetch_all(
+                """SELECT q.question_id, q.question_text, q.difficulty_level, q.marks, s.subject_name
+                   FROM questions q
+                   JOIN subjects s ON q.subject_id = s.subject_id
+                   WHERE q.created_by = %s
+                   ORDER BY q.created_at DESC
+                   LIMIT 20""",
+                (st.session_state.user_id,)
+            )
+            db.disconnect()
+            
+            if questions:
+                for q in questions:
+                    col_q1, col_q2, col_q3 = st.columns([2, 1, 1])
+                    with col_q1:
+                        st.write(f"**{q[1][:50]}...**")
+                    with col_q2:
+                        st.write(f"{q[2]} | {q[3]} marks")
+                    with col_q3:
+                        if st.button("❌", key=f"del_q_{q[0]}"):
+                            db = Database()
+                            if db.connect():
+                                db.execute_query("DELETE FROM questions WHERE question_id = %s", (q[0],))
+                                db.disconnect()
+                            st.rerun()
+                    st.divider()
+            else:
+                st.info("No questions created yet")
+
+with tab2:
+    st.markdown("## Test Management")
+    
+    db = Database()
+    if db.connect():
+        if st.session_state.user_role == 'admin':
+            tests = db.fetch_all(
+                """SELECT test_id, test_name, subject_id, total_marks, duration_minutes, 
+                          is_published, (SELECT COUNT(*) FROM test_questions WHERE test_id = tests.test_id)
+                   FROM tests LIMIT 20"""
+            )
+        else:
+            tests = db.fetch_all(
+                """SELECT test_id, test_name, subject_id, total_marks, duration_minutes, 
+                          is_published, (SELECT COUNT(*) FROM test_questions WHERE test_id = tests.test_id)
+                   FROM tests WHERE created_by = %s LIMIT 20""",
+                (st.session_state.user_id,)
+            )
+        db.disconnect()
+        
+        if tests:
+            for test in tests:
+                col_t1, col_t2, col_t3, col_t4 = st.columns([2, 1, 1, 1])
+                with col_t1:
+                    status = "✓ Published" if test[5] else "✗ Draft"
+                    st.write(f"**{test[1]}** ({status})")
+                with col_t2:
+                    st.write(f"{test[3]} marks | {test[4]} min")
+                with col_t3:
+                    st.write(f"{test[6]} questions")
+                with col_t4:
+                    if not test[5]:
+                        if st.button("📤 Publish", key=f"pub_test_{test[0]}"):
+                            db = Database()
+                            if db.connect():
+                                db.execute_query(
+                                    "UPDATE tests SET is_published = TRUE WHERE test_id = %s",
+                                    (test[0],)
+                                )
+                                db.disconnect()
+                            st.rerun()
+                st.divider()
+        else:
+            st.info("No tests available")
+
+with tab3:
+    st.markdown("## Test Analytics")
+    
+    db = Database()
+    if db.connect():
+        if st.session_state.user_role == 'admin':
+            tests = db.fetch_all("SELECT test_id, test_name FROM tests ORDER BY created_at DESC LIMIT 20")
+        else:
+            tests = db.fetch_all(
+                """SELECT test_id, test_name FROM tests WHERE created_by = %s 
+                   ORDER BY created_at DESC LIMIT 20""",
+                (st.session_state.user_id,)
+            )
+        db.disconnect()
+        
+        test_options = {t[1]: t[0] for t in tests}
+    else:
+        test_options = {}
+    
+    if test_options:
+        selected_test_name = st.selectbox("Select Test", list(test_options.keys()))
+        test_id = test_options[selected_test_name]
+        
+        analytics = get_analytics()
+        
+        # Statistics
+        col1, col2, col3, col4 = st.columns(4)
+        stats = analytics.get_average_marks(test_id)
+        
+        if stats:
+            with col1:
+                st.metric("Avg Marks", f"{stats['average']:.2f}")
+            with col2:
+                st.metric("Max Marks", f"{stats['maximum']:.2f}")
+            with col3:
+                st.metric("Min Marks", f"{stats['minimum']:.2f}")
+            with col4:
+                st.metric("Students", stats['total_students'])
+        
+        st.divider()
+        
+        # Charts
+        col_chart1, col_chart2 = st.columns(2)
+        
+        with col_chart1:
+            st.markdown("### Marks Distribution")
+            fig = analytics.generate_marks_distribution_chart(test_id)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col_chart2:
+            st.markdown("### Performance by Difficulty")
+            fig = analytics.generate_performance_by_difficulty_chart(test_id)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+        
+        st.divider()
+        
+        # Question difficulty analysis
+        st.markdown("### Question Performance Analysis")
+        questions = analytics.get_question_difficulty_analysis(test_id)
+        
+        if questions:
+            df_data = []
+            for q in questions:
+                df_data.append({
+                    "Question": q['question_text'],
+                    "Difficulty": q['difficulty'],
+                    "Attempts": q['attempts'],
+                    "Correct": q['correct'],
+                    "Success Rate %": q['success_rate']
+                })
+            
+            df = pd.DataFrame(df_data)
+            st.dataframe(df, use_container_width=True)
+            
+            # Export option
+            if st.button("📥 Export as CSV"):
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"analysis_{selected_test_name}.csv",
+                    mime="text/csv"
+                )
+        
+        st.divider()
+        
+        # Top performers
+        st.markdown("### Top Performers")
+        toppers = analytics.get_subject_toppers(test_id, limit=10)
+        
+        if toppers:
+            for i, topper in enumerate(toppers, 1):
+                col_rank, col_name, col_score = st.columns([1, 2, 2])
+                with col_rank:
+                    st.write(f"**#{i}** 🥇" if i == 1 else f"**#{i}** 🥈" if i == 2 else f"**#{i}** 🥉" if i == 3 else f"**#{i}**")
+                with col_name:
+                    st.write(topper[0])
+                with col_score:
+                    st.write(f"{topper[2]:.2f}/100 ({topper[3]:.2f}%) - **{topper[4]}**")
+
+with tab4:
+    st.markdown("## Bulk Import Questions")
+    
+    st.info("""
+    Upload CSV file with questions. Format:
+    - question_text, option_a, option_b, option_c, option_d, correct_answer, difficulty_level, marks
+    """)
+    
+    uploaded_file = st.file_uploader("Choose CSV file", type=['csv'])
+    
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        st.write("Preview:")
+        st.dataframe(df.head())
+        
+        if st.button("Import Questions"):
+            db = Database()
+            if db.connect():
+                subject_options = {"Default": 1}  # Default subject
+                success_count = 0
+                error_count = 0
+                
+                for idx, row in df.iterrows():
+                    try:
+                        db.execute_query(
+                            """INSERT INTO questions 
+                               (subject_id, question_text, option_a, option_b, option_c, option_d,
+                                correct_answer, difficulty_level, marks, created_by)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (1, row['question_text'], row['option_a'], row['option_b'], 
+                             row['option_c'], row['option_d'], row['correct_answer'],
+                             row['difficulty_level'], row.get('marks', 1), 
+                             st.session_state.user_id)
+                        )
+                        success_count += 1
+                    except Exception as e:
+                        error_count += 1
+                
+                db.disconnect()
+                st.success(f"✓ Imported {success_count} questions")
+                if error_count > 0:
+                    st.warning(f"⚠️ {error_count} questions failed to import")
