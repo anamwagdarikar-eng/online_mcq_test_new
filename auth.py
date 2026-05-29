@@ -66,10 +66,11 @@ class Auth:
                 self.db.disconnect()
                 return {"success": False, "message": "Too many login attempts. Try again later"}
 
-            # Get user
+            # Get user by username or email
             user = self.db.fetch_one(
-                "SELECT user_id, username, password_hash, role, is_active FROM users WHERE username = %s",
-                (username,)
+                """SELECT user_id, username, password_hash, role, is_active 
+                   FROM users WHERE username = %s OR email = %s""",
+                (username, username)
             )
 
             if not user:

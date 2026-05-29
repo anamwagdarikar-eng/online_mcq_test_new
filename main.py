@@ -166,7 +166,7 @@ def show_login():
         st.markdown("## 🔐 Login")
         
         with st.form("login_form"):
-            username = st.text_input("Username")
+            username = st.text_input("Username or Email")
             password = st.text_input("Password", type="password")
             role = st.selectbox("Role", ["student", "faculty", "admin"])
             submit = st.form_submit_button("Login", use_container_width=True)
@@ -202,7 +202,7 @@ def show_login():
                 st.error(f"✗ {result['message']}")
         
         # Info for new users
-        st.info("👨‍🎓 Use your college credentials to login")
+        st.info("👨‍🎓 Use your college username or email to login")
 
 def show_main():
     """Show main application after login"""
