@@ -11,37 +11,47 @@ print(f"[DEBUG] main.py path={_current_file} cwd={Path.cwd()}", file=sys.stderr)
 
 def _find_project_root(start_path: Path) -> Path:
     def has_required_files(root: Path) -> bool:
-        return (root / "config.py").is_file() and (root / "utils" / "auth.py").is_file()
+        return (root / "config.py").is_file() and (
+            (root / "auth.py").is_file() or (root / "utils" / "auth.py").is_file()
+        )
 
-    # Check current folder and parent folders first
-    for candidate in [start_path] + list(start_path.parents):
+    candidates = []
+    for path in [start_path, Path.cwd()]:
+        if path is None:
+            continue
+        candidates.append(path)
+        candidates.extend(path.parents)
+
+    seen = set()
+    for candidate in candidates:
+        try:
+            candidate = candidate.resolve()
+        except Exception:
+            continue
+        if candidate in seen:
+            continue
+        seen.add(candidate)
         print(f"[DEBUG] checking upward candidate={candidate}", file=sys.stderr)
         if has_required_files(candidate):
             print(f"[DEBUG] found project root upward={candidate}", file=sys.stderr)
             return candidate
 
-    # Then search for a matching config.py + utils/auth.py pair inside the current tree
-    for candidate in [start_path] + list(start_path.parents):
-        for config_path in candidate.rglob("config.py"):
+    for base in [start_path, Path.cwd()]:
+        if base is None:
+            continue
+        for config_path in base.rglob("config.py"):
             root = config_path.parent
-            print(f"[DEBUG] scanning tree under={candidate}, found config={config_path}", file=sys.stderr)
-            if (root / "utils" / "auth.py").is_file():
+            if root in seen:
+                continue
+            seen.add(root)
+            print(f"[DEBUG] scanning tree under={base}, found config={config_path}", file=sys.stderr)
+            if has_required_files(root):
                 print(f"[DEBUG] found project root via rglob={root}", file=sys.stderr)
                 return root
 
-    # As a last resort, search under /mount if available
-    mount_root = Path('/mount')
-    if mount_root.exists():
-        print(f"[DEBUG] searching /mount for config.py", file=sys.stderr)
-        for config_path in mount_root.rglob("config.py"):
-            root = config_path.parent
-            if (root / "utils" / "auth.py").is_file():
-                print(f"[DEBUG] found project root under /mount={root}", file=sys.stderr)
-                return root
-
     raise FileNotFoundError(
-        "Could not locate project root containing config.py and utils/auth.py. "
-        f"Checked: {_current_file.parent}, its parents, and /mount."
+        "Could not locate project root containing config.py and auth.py or utils/auth.py. "
+        f"Checked: {_current_file.parent}, cwd={Path.cwd()}, its parents, and immediate tree scans."
     )
 
 _project_root = _find_project_root(_start_path)
