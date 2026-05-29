@@ -1,21 +1,35 @@
 import os
 import sys
+from pathlib import Path
+import importlib.util
 
 # CRITICAL: Add project root to Python path FIRST, before any other imports
-# This must be done before importing utils, config, or database
-_project_root = os.path.dirname(os.path.abspath(__file__))
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
-
-# Now safe to import streamlit and other modules
-import streamlit as st
-from datetime import datetime, timedelta
+# This must be done before importing config or database
+_project_root = Path(__file__).resolve().parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 # Import project modules
 from config import APP_NAME, COLLEGE_NAME, ACADEMIC_YEAR, SESSION_TIMEOUT
-from utils.auth import get_auth
-from utils.security import get_security
 from database import Database
+
+# Load utils modules directly from source files to avoid package path issues
+def _load_module_from_path(module_name, file_path):
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sys.modules[module_name] = module
+    return module
+
+_utils_dir = _project_root / "utils"
+_auth_module = _load_module_from_path("utils.auth", str(_utils_dir / "auth.py"))
+_security_module = _load_module_from_path("utils.security", str(_utils_dir / "security.py"))
+
+get_auth = _auth_module.get_auth
+get_security = _security_module.get_security
+
+import streamlit as st
+from datetime import datetime, timedelta
 
 # Page configuration
 st.set_page_config(
