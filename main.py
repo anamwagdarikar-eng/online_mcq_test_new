@@ -3,19 +3,30 @@ import sys
 from pathlib import Path
 
 # CRITICAL: Find project root before importing modules
+# This supports cases where Streamlit Cloud deploys the app in a nested or renamed folder.
 _current_file = Path(__file__).resolve()
 _project_root = _current_file.parent
 
-while True:
-    if (_project_root / "config.py").exists() and (_project_root / "utils" / "auth.py").exists():
-        break
-    if _project_root.parent == _project_root:
-        raise FileNotFoundError(
-            "Could not locate project root containing config.py and utils/auth.py. "
-            f"Checked: {_current_file.parent} and parents."
-        )
-    _project_root = _project_root.parent
+def _find_project_root(start_path: Path) -> Path:
+    def has_required_files(root: Path) -> bool:
+        return (root / "config.py").is_file() and (root / "utils" / "auth.py").is_file()
 
+    for candidate in [start_path] + list(start_path.parents):
+        if has_required_files(candidate):
+            return candidate
+
+    for candidate in [start_path] + list(start_path.parents):
+        for config_path in candidate.rglob("config.py"):
+            root = config_path.parent
+            if (root / "utils" / "auth.py").is_file():
+                return root
+
+    raise FileNotFoundError(
+        "Could not locate project root containing config.py and utils/auth.py. "
+        f"Checked: {_current_file.parent} and parents, and searched subdirectories under those paths."
+    )
+
+_project_root = _find_project_root(_project_root)
 _project_root_str = str(_project_root)
 if _project_root_str not in sys.path:
     sys.path.insert(0, _project_root_str)
