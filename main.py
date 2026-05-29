@@ -487,7 +487,13 @@ def show_create_test():
         subject_id = subject_options.get(subject_name)
         total_marks = st.number_input("Total Marks", min_value=10, max_value=1000, value=100)
         duration = st.number_input("Duration (minutes)", min_value=15, max_value=480, value=60)
-        passing_marks = st.number_input("Passing Marks", min_value=0, max_value=total_marks, value=40)
+        default_passing = min(40, total_marks)
+        passing_marks = st.number_input(
+            "Passing Marks",
+            min_value=0,
+            max_value=total_marks,
+            value=default_passing,
+        )
         start_date = st.date_input("Start Date")
         start_time = st.time_input("Start Time")
         end_date = st.date_input("End Date")
