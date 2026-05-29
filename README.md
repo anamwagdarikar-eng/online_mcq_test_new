@@ -117,7 +117,8 @@ ENABLE_HTTPS=True
 
 # College Information
 COLLEGE_NAME=Vidya Vikas Institute of Engineering and Technology, Solapur
-ACADEMIC_YEAR=2024-2025
+# If left blank or set to AUTO, academic year will be calculated automatically from July 1 to June 30.
+ACADEMIC_YEAR=AUTO
 
 # Debug
 DEBUG_MODE=False

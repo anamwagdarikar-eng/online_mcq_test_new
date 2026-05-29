@@ -49,10 +49,15 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL", "")
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "")
 
 # College Information (Customize as needed)
-COLLEGE_NAME = os.getenv(
-    "COLLEGE_NAME",
-    "Vidya Vikas Institute of Engineering and Technology, Solapur"
-)
+DEFAULT_COLLEGE_NAME = "Vidya Vikas Institute of Engineering and Technology, Solapur"
+COLLEGE_NAME = os.getenv("COLLEGE_NAME", DEFAULT_COLLEGE_NAME).strip()
+if COLLEGE_NAME in {
+    "",
+    "XYZ Engineering College",
+    "Vidya Vikas Pratishthan College of Engineering and Technology, Solapur",
+}:
+    COLLEGE_NAME = DEFAULT_COLLEGE_NAME
+
 COLLEGE_LOGO_PATH = "assets/college_logo.png"
 
 def get_academic_year():
@@ -66,7 +71,9 @@ def get_academic_year():
         end_year = year
     return f"{start_year}-{end_year}"
 
-ACADEMIC_YEAR = os.getenv("ACADEMIC_YEAR", get_academic_year())
+ACADEMIC_YEAR = os.getenv("ACADEMIC_YEAR", "").strip()
+if not ACADEMIC_YEAR or ACADEMIC_YEAR.lower() == "auto" or ACADEMIC_YEAR == "2024-2025":
+    ACADEMIC_YEAR = get_academic_year()
 
 # Debug Mode
 DEBUG_MODE = os.getenv("DEBUG_MODE", "False") == "True"
