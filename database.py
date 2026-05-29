@@ -29,6 +29,32 @@ class Database:
         if self.conn:
             self.conn.close()
 
+    def table_exists(self, table_name):
+        """Check whether a table exists in the database"""
+        should_disconnect = False
+        if not self.conn or not self.cursor:
+            if not self.connect():
+                return False
+            should_disconnect = True
+
+        try:
+            self.cursor.execute(
+                """SELECT EXISTS (
+                       SELECT 1 FROM information_schema.tables
+                       WHERE table_schema = 'public' AND table_name = %s
+                   )""",
+                (table_name,)
+            )
+            result = self.cursor.fetchone()
+            return bool(result[0]) if result else False
+        except Exception as e:
+            if DEBUG_MODE:
+                print(f"✗ Table exists check failed: {e}")
+            return False
+        finally:
+            if should_disconnect:
+                self.disconnect()
+
     def execute_query(self, query, params=None):
         """Execute a query"""
         try:

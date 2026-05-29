@@ -75,6 +75,39 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
+def ensure_database_ready():
+    """Ensure the application database schema exists and seed default data."""
+    db = Database()
+    if not db.connect():
+        return False, (
+            "Database connection failed. "
+            "Check Streamlit Cloud DATABASE_URL and NEON_CONNECTION_STRING settings."
+        )
+    try:
+        if not db.table_exists("users"):
+            db.disconnect()
+            initializer = Database()
+            if not initializer.init_database():
+                return False, (
+                    "Database schema initialization failed. "
+                    "Check the database connection and permissions."
+                )
+            from seed_data import seed_sample_data
+            if not seed_sample_data():
+                return False, (
+                    "Sample data seeding failed. "
+                    "Verify your database connection and try again."
+                )
+            return True, "Database schema created and default users seeded."
+        return True, ""
+    finally:
+        db.disconnect()
+
+ready, ready_message = ensure_database_ready()
+if not ready:
+    st.error(ready_message)
+
 # Custom CSS for college-style UI
 st.markdown("""
     <style>
