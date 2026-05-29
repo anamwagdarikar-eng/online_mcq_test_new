@@ -5,7 +5,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database Configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/mcq_db")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://neondb_owner:npg_ghH6OICZak3s@ep-cold-flower-aqauklmd-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+)
 NEON_CONNECTION_STRING = os.getenv("NEON_CONNECTION_STRING", DATABASE_URL)
 
 # App Configuration
