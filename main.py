@@ -321,7 +321,7 @@ def show_available_tests():
                 with col3:
                     if st.button(f"Start Test", key=f"avail_test_{test[0]}"):
                         st.session_state.current_test = test[0]
-                        st.experimental_rerun()
+                        st.rerun()
         else:
             st.info("No tests available at the moment.")
 
@@ -357,7 +357,7 @@ def show_student_test():
         st.session_state.test_attempt_started = False
         st.session_state.attempt_id = None
         st.session_state.responses = {}
-        st.experimental_rerun()
+        st.rerun()
 
     if 'test_attempt_started' not in st.session_state:
         st.session_state.test_attempt_started = False
@@ -377,7 +377,7 @@ def show_student_test():
                 st.session_state.start_time = attempt['start_time']
                 st.session_state.test_attempt_started = True
                 st.success("✓ Test attempt started")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Unable to start the test attempt. Please contact admin.")
         return
@@ -421,11 +421,11 @@ def show_student_test():
     with col1:
         if st.button("⬅️ Previous") and current_index > 0:
             st.session_state.student_current_question -= 1
-            st.experimental_rerun()
+            st.rerun()
     with col2:
         if st.button("Next ➡️") and current_index < len(questions) - 1:
             st.session_state.student_current_question += 1
-            st.experimental_rerun()
+            st.rerun()
     with col3:
         if st.button("✅ Submit Test", use_container_width=True):
             result = test_mgmt.submit_test(test_id, st.session_state.user_id)
@@ -661,7 +661,7 @@ def show_admin_departments():
                         )
                         db.disconnect()
                         st.success("✓ Department added successfully")
-                        st.experimental_rerun()
+                        st.rerun()
                 else:
                     st.error("Please fill in both fields")
 
@@ -679,7 +679,7 @@ def show_admin_departments():
                             db.execute_query("DELETE FROM departments WHERE dept_id = %s", (dept[0],))
                             db.disconnect()
                         st.success("✓ Department deleted")
-                        st.experimental_rerun()
+                        st.rerun()
         else:
             st.info("No departments defined yet")
 
@@ -723,7 +723,7 @@ def show_admin_subjects():
                         )
                         db.disconnect()
                         st.success("✓ Subject added successfully")
-                        st.experimental_rerun()
+                        st.rerun()
                 else:
                     st.error("Please select a valid department and enter the subject details")
 
@@ -741,7 +741,7 @@ def show_admin_subjects():
                             db.execute_query("DELETE FROM subjects WHERE subject_id = %s", (subj[0],))
                             db.disconnect()
                         st.success("✓ Subject deleted")
-                        st.experimental_rerun()
+                        st.rerun()
         else:
             st.info("No subjects defined yet")
 
