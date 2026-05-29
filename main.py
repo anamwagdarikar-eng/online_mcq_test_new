@@ -65,6 +65,7 @@ from datetime import datetime, timedelta
 from config import APP_NAME, COLLEGE_NAME, ACADEMIC_YEAR, SESSION_TIMEOUT
 from utils.auth import get_auth
 from utils.security import get_security
+from utils.test_management import get_test_management
 from database import Database
 
 # Page configuration
@@ -250,6 +251,10 @@ def show_student_dashboard():
     """Student dashboard"""
     show_header()
     
+    if st.session_state.get('current_test'):
+        show_student_test()
+        return
+
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -316,9 +321,150 @@ def show_available_tests():
                 with col3:
                     if st.button(f"Start Test", key=f"avail_test_{test[0]}"):
                         st.session_state.current_test = test[0]
-                        st.rerun()
+                        st.experimental_rerun()
         else:
             st.info("No tests available at the moment.")
+
+
+def show_student_test():
+    """Render the selected student test page"""
+    test_id = st.session_state.get('current_test')
+    if not test_id:
+        st.error("No test selected.")
+        return
+
+    db = Database()
+    if db.connect():
+        test = db.fetch_one(
+            "SELECT test_name, total_marks, duration_minutes, start_time, end_time FROM tests WHERE test_id = %s",
+            (test_id,)
+        )
+        db.disconnect()
+    else:
+        test = None
+
+    if not test:
+        st.error("Unable to load the selected test.")
+        return
+
+    test_name, total_marks, duration_minutes, start_time, end_time = test
+    st.markdown(f"### 📝 Test: {test_name}")
+    st.write(f"Total Marks: {total_marks} | Duration: {duration_minutes} minutes")
+    st.write(f"Start Time: {start_time} | End Time: {end_time}")
+
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.current_test = None
+        st.session_state.test_attempt_started = False
+        st.session_state.attempt_id = None
+        st.session_state.responses = {}
+        st.experimental_rerun()
+
+    if 'test_attempt_started' not in st.session_state:
+        st.session_state.test_attempt_started = False
+
+    if not st.session_state.test_attempt_started:
+        if st.button("Start Test", use_container_width=True):
+            test_mgmt = get_test_management()
+            attempt = test_mgmt.start_test_attempt(
+                test_id,
+                st.session_state.user_id,
+                "127.0.0.1",
+                "streamlit"
+            )
+            if attempt:
+                st.session_state.attempt_id = attempt['attempt_id']
+                st.session_state.duration_minutes = attempt['duration_minutes']
+                st.session_state.start_time = attempt['start_time']
+                st.session_state.test_attempt_started = True
+                st.success("✓ Test attempt started")
+                st.experimental_rerun()
+            else:
+                st.error("Unable to start the test attempt. Please contact admin.")
+        return
+
+    test_mgmt = get_test_management()
+    questions = test_mgmt.get_test_questions(test_id, randomize=True)
+    if not questions:
+        st.info("No questions are configured for this test yet.")
+        return
+
+    if 'student_current_question' not in st.session_state:
+        st.session_state.student_current_question = 0
+    if 'responses' not in st.session_state:
+        st.session_state.responses = {}
+
+    current_index = st.session_state.student_current_question
+    if current_index < 0:
+        st.session_state.student_current_question = 0
+        current_index = 0
+    if current_index >= len(questions):
+        st.session_state.student_current_question = len(questions) - 1
+        current_index = len(questions) - 1
+
+    question = questions[current_index]
+    st.markdown(f"#### Question {current_index + 1} of {len(questions)}")
+    st.write(question['question_text'])
+    answer = st.radio(
+        "Choose your answer:",
+        list(question['options'].keys()),
+        index=list(question['options'].keys()).index(st.session_state.responses.get(current_index, list(question['options'].keys())[0])) if st.session_state.responses.get(current_index) else 0,
+        key=f"question_{current_index}_answer"
+    )
+
+    st.session_state.responses[current_index] = answer
+
+    if st.button("Save Answer", key=f"save_answer_{current_index}"):
+        test_mgmt.submit_response(test_id, st.session_state.user_id, question['question_id'], answer)
+        st.success("Answer saved")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("⬅️ Previous") and current_index > 0:
+            st.session_state.student_current_question -= 1
+            st.experimental_rerun()
+    with col2:
+        if st.button("Next ➡️") and current_index < len(questions) - 1:
+            st.session_state.student_current_question += 1
+            st.experimental_rerun()
+    with col3:
+        if st.button("✅ Submit Test", use_container_width=True):
+            result = test_mgmt.submit_test(test_id, st.session_state.user_id)
+            if result.get('success'):
+                st.success("✓ Test submitted successfully")
+                output = result['results']
+                st.markdown(f"**Score:** {output['marks_obtained']:.2f} / {output['total_marks']}")
+                st.markdown(f"**Grade:** {output['grade']} | **Percentage:** {output['percentage']}%")
+                st.session_state.current_test = None
+                st.session_state.test_attempt_started = False
+                st.session_state.attempt_id = None
+                st.session_state.responses = {}
+            else:
+                st.error("Unable to submit the test")
+
+
+def show_my_results():
+    """Student results page"""
+    st.markdown("### 📊 My Results")
+    db = Database()
+    if db.connect():
+        results = db.fetch_all(
+            """SELECT tr.test_id, t.test_name, tr.marks_obtained, tr.percentage, tr.grade, tr.passed, tr.created_at
+               FROM test_results tr
+               JOIN tests t ON tr.test_id = t.test_id
+               WHERE tr.student_id = %s
+               ORDER BY tr.created_at DESC""",
+            (st.session_state.user_id,)
+        )
+        db.disconnect()
+    else:
+        results = []
+
+    if results:
+        for row in results:
+            status = "✓ PASS" if row[5] else "✗ FAIL"
+            st.write(f"**{row[1]}** — {row[2]:.2f} marks — {row[3]:.2f}% — {row[4]} — {status}")
+    else:
+        st.info("No results found. Take a test to generate your first result.")
 
 
 def show_create_test():
