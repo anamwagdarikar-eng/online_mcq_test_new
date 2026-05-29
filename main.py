@@ -202,7 +202,7 @@ def show_login():
                 st.error(f"✗ {result['message']}")
         
         # Info for new users
-        st.info("👨‍🎓 Use your college credentials to login")
+        st.info("👨‍🎓 Use your college username or email to login")
 
 def show_main():
     """Show main application after login"""

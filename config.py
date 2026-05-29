@@ -1,10 +1,14 @@
 import os
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Database Configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/mcq_db")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://neondb_owner:npg_ghH6OICZak3s@ep-cold-flower-aqauklmd-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+)
 NEON_CONNECTION_STRING = os.getenv("NEON_CONNECTION_STRING", DATABASE_URL)
 
 # App Configuration
@@ -48,9 +52,22 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL", "")
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "")
 
 # College Information (Customize as needed)
-COLLEGE_NAME = os.getenv("COLLEGE_NAME", "XYZ Engineering College")
+DEFAULT_COLLEGE_NAME = "Vidya Vikas Institute of Engineering and Technology, Solapur"
+COLLEGE_NAME = DEFAULT_COLLEGE_NAME
 COLLEGE_LOGO_PATH = "assets/college_logo.png"
-ACADEMIC_YEAR = "2024-2025"
+
+def get_academic_year():
+    today = datetime.today()
+    year = today.year
+    if today.month >= 7:
+        start_year = year
+        end_year = year + 1
+    else:
+        start_year = year - 1
+        end_year = year
+    return f"{start_year}-{end_year}"
+
+ACADEMIC_YEAR = get_academic_year()
 
 # Debug Mode
 DEBUG_MODE = os.getenv("DEBUG_MODE", "False") == "True"
