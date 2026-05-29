@@ -481,6 +481,223 @@ def show_edit_user():
         else:
             st.info("No results available yet.")
 
+
+def show_admin_departments():
+    st.markdown("#### Department Management")
+    db = Database()
+    if db.connect():
+        departments = db.fetch_all(
+            "SELECT dept_id, dept_name, dept_code, created_at FROM departments ORDER BY dept_name"
+        )
+        db.disconnect()
+    else:
+        departments = []
+
+    col1, col2 = st.columns([2, 3])
+    with col1:
+        st.markdown("##### Add New Department")
+        with st.form("add_department_form"):
+            dept_name = st.text_input("Department Name *")
+            dept_code = st.text_input("Department Code *")
+            if st.form_submit_button("Add Department", use_container_width=True):
+                if dept_name and dept_code:
+                    db = Database()
+                    if db.connect():
+                        db.execute_query(
+                            "INSERT INTO departments (dept_name, dept_code) VALUES (%s, %s)",
+                            (dept_name, dept_code)
+                        )
+                        db.disconnect()
+                        st.success("✓ Department added successfully")
+                        st.experimental_rerun()
+                else:
+                    st.error("Please fill in both fields")
+
+    with col2:
+        st.markdown("##### Existing Departments")
+        if departments:
+            for dept in departments:
+                col_d1, col_d2 = st.columns([4, 1])
+                with col_d1:
+                    st.write(f"**{dept[1]}** ({dept[2]})")
+                with col_d2:
+                    if st.button("Delete", key=f"delete_dept_{dept[0]}"):
+                        db = Database()
+                        if db.connect():
+                            db.execute_query("DELETE FROM departments WHERE dept_id = %s", (dept[0],))
+                            db.disconnect()
+                        st.success("✓ Department deleted")
+                        st.experimental_rerun()
+        else:
+            st.info("No departments defined yet")
+
+
+def show_admin_subjects():
+    st.markdown("#### Subject Management")
+    db = Database()
+    if db.connect():
+        departments = db.fetch_all("SELECT dept_id, dept_name FROM departments ORDER BY dept_name")
+        subjects = db.fetch_all(
+            """SELECT s.subject_id, s.subject_name, s.subject_code, d.dept_name, s.semester
+               FROM subjects s
+               JOIN departments d ON s.dept_id = d.dept_id
+               ORDER BY s.subject_name"""
+        )
+        db.disconnect()
+    else:
+        departments = []
+        subjects = []
+
+    dept_options = {dept[1]: dept[0] for dept in departments}
+
+    col1, col2 = st.columns([2, 3])
+    with col1:
+        st.markdown("##### Add New Subject")
+        with st.form("add_subject_form"):
+            subject_name = st.text_input("Subject Name *")
+            subject_code = st.text_input("Subject Code *")
+            department_name = st.selectbox(
+                "Department *",
+                list(dept_options.keys()) if dept_options else ["No departments available"]
+            )
+            semester = st.number_input("Semester", min_value=1, max_value=8, value=1)
+            if st.form_submit_button("Add Subject", use_container_width=True):
+                if subject_name and subject_code and department_name and department_name in dept_options:
+                    db = Database()
+                    if db.connect():
+                        db.execute_query(
+                            "INSERT INTO subjects (subject_name, subject_code, dept_id, semester) VALUES (%s, %s, %s, %s)",
+                            (subject_name, subject_code, dept_options[department_name], semester)
+                        )
+                        db.disconnect()
+                        st.success("✓ Subject added successfully")
+                        st.experimental_rerun()
+                else:
+                    st.error("Please select a valid department and enter the subject details")
+
+    with col2:
+        st.markdown("##### Existing Subjects")
+        if subjects:
+            for subj in subjects:
+                col_s1, col_s2 = st.columns([4, 1])
+                with col_s1:
+                    st.write(f"**{subj[1]}** ({subj[2]}) — {subj[3]} | Semester {subj[4]}")
+                with col_s2:
+                    if st.button("Delete", key=f"delete_subj_{subj[0]}"):
+                        db = Database()
+                        if db.connect():
+                            db.execute_query("DELETE FROM subjects WHERE subject_id = %s", (subj[0],))
+                            db.disconnect()
+                        st.success("✓ Subject deleted")
+                        st.experimental_rerun()
+        else:
+            st.info("No subjects defined yet")
+
+
+def show_admin_settings():
+    st.markdown("#### System Settings")
+    st.write("**College:**", COLLEGE_NAME)
+    st.write("**Academic Year:**", ACADEMIC_YEAR)
+    st.write("**App Name:**", APP_NAME)
+
+    db = Database()
+    counts = {}
+    if db.connect():
+        counts['users'] = db.fetch_one("SELECT COUNT(*) FROM users")[0]
+        counts['departments'] = db.fetch_one("SELECT COUNT(*) FROM departments")[0]
+        counts['subjects'] = db.fetch_one("SELECT COUNT(*) FROM subjects")[0]
+        counts['tests'] = db.fetch_one("SELECT COUNT(*) FROM tests")[0]
+        db.disconnect()
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Users", counts.get('users', 0))
+    with col2:
+        st.metric("Departments", counts.get('departments', 0))
+    with col3:
+        st.metric("Subjects", counts.get('subjects', 0))
+    with col4:
+        st.metric("Tests", counts.get('tests', 0))
+
+    st.markdown("---")
+    st.info("Use the other tabs to manage users, departments, subjects, and tests.")
+
+
+def show_faculty_analytics():
+    st.markdown("#### Test Analytics")
+    db = Database()
+    if db.connect():
+        if st.session_state.user_role == 'admin':
+            tests = db.fetch_all("SELECT test_id, test_name FROM tests ORDER BY created_at DESC LIMIT 20")
+        else:
+            tests = db.fetch_all(
+                "SELECT test_id, test_name FROM tests WHERE created_by = %s ORDER BY created_at DESC LIMIT 20",
+                (st.session_state.user_id,)
+            )
+        db.disconnect()
+    else:
+        tests = []
+
+    if not tests:
+        st.info("No tests available yet.")
+        return
+
+    test_map = {test[1]: test[0] for test in tests}
+    selected_test = st.selectbox("Select Test", list(test_map.keys()))
+    test_id = test_map[selected_test]
+
+    db = Database()
+    if db.connect():
+        stats = db.fetch_one(
+            "SELECT COUNT(*), COALESCE(AVG(marks_obtained), 0), SUM(CASE WHEN passed THEN 1 ELSE 0 END) FROM test_results WHERE test_id = %s",
+            (test_id,)
+        )
+        results = db.fetch_all(
+            """SELECT u.full_name, tr.marks_obtained, tr.percentage, tr.grade, tr.passed
+               FROM test_results tr
+               JOIN users u ON tr.student_id = u.user_id
+               WHERE tr.test_id = %s
+               ORDER BY tr.created_at DESC
+               LIMIT 10""",
+            (test_id,)
+        )
+        db.disconnect()
+    else:
+        stats = (0, 0, 0)
+        results = []
+
+    st.metric("Total Attempts", stats[0])
+    st.metric("Average Marks", f"{stats[1]:.2f}")
+    st.metric("Pass Count", stats[2])
+
+    if results:
+        st.markdown("##### Recent Results")
+        for row in results:
+            status = "✓ PASS" if row[4] else "✗ FAIL"
+            st.write(f"{row[0]} — {row[1]:.2f}/100 — {row[3]} — {status}")
+    else:
+        st.info("No result records found for this test yet.")
+
+
+def show_faculty_students():
+    st.markdown("#### Students")
+    db = Database()
+    if db.connect():
+        students = db.fetch_all(
+            "SELECT username, full_name, email, department, semester, is_active FROM users WHERE role = 'student' ORDER BY full_name LIMIT 50"
+        )
+        db.disconnect()
+    else:
+        students = []
+
+    if students:
+        for student in students:
+            status = "Active" if student[5] else "Inactive"
+            st.write(f"**{student[1]}** ({student[0]}) — {student[3]} | Sem {student[4]} — {status}")
+    else:
+        st.info("No students available yet.")
+
+
 def show_faculty_dashboard():
     """Faculty dashboard"""
     show_header()
@@ -499,12 +716,10 @@ def show_faculty_dashboard():
             st.session_state.page = "create_test"
     
     with tab2:
-        st.markdown("#### Test Analytics")
-        st.info("Analytics dashboard coming soon")
+        show_faculty_analytics()
     
     with tab3:
-        st.markdown("#### View Students")
-        st.info("Student management coming soon")
+        show_faculty_students()
 
 def show_admin_dashboard():
     """Admin dashboard"""
@@ -552,16 +767,13 @@ def show_admin_dashboard():
                             st.session_state.page = "edit_user"
     
     with tab2:
-        st.markdown("#### Department Management")
-        st.info("Department management coming soon")
+        show_admin_departments()
     
     with tab3:
-        st.markdown("#### Subject Management")
-        st.info("Subject management coming soon")
+        show_admin_subjects()
     
     with tab4:
-        st.markdown("#### System Settings")
-        st.info("Settings coming soon")
+        show_admin_settings()
 
 def show_logout():
     """Logout button and session management"""
