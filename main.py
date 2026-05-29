@@ -298,12 +298,160 @@ def show_student_dashboard():
 def show_available_tests():
     """Show available tests"""
     st.markdown("### 📝 Available Tests")
-    # Implementation similar to dashboard
-
-def show_my_results():
-    """Show student results"""
-    st.markdown("### 📊 My Test Results")
     db = Database()
+    if db.connect():
+        tests = db.fetch_all(
+            """SELECT test_id, test_name, subject_id, duration_minutes, total_marks, start_time, end_time
+               FROM tests WHERE is_published = TRUE AND NOW() < end_time ORDER BY start_time"""
+        )
+        db.disconnect()
+
+        if tests:
+            for test in tests:
+                col1, col2, col3 = st.columns([2, 1, 1])
+                with col1:
+                    st.write(f"**{test[1]}**")
+                with col2:
+                    st.write(f"⏱️ {test[3]} mins | 📍 {test[4]} marks")
+                with col3:
+                    if st.button(f"Start Test", key=f"avail_test_{test[0]}"):
+                        st.session_state.current_test = test[0]
+                        st.rerun()
+        else:
+            st.info("No tests available at the moment.")
+
+
+def show_create_test():
+    """Faculty/admin create test"""
+    st.markdown("### 📝 Create New Test")
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.page = None
+
+    db = Database()
+    if db.connect():
+        subjects = db.fetch_all("SELECT subject_id, subject_name FROM subjects")
+        db.disconnect()
+        subject_options = {s[1]: s[0] for s in subjects}
+    else:
+        subject_options = {}
+
+    with st.form("create_test_form"):
+        test_name = st.text_input("Test Name *")
+        subject_name = st.selectbox("Subject *", list(subject_options.keys()) if subject_options else [])
+        subject_id = subject_options.get(subject_name)
+        total_marks = st.number_input("Total Marks", min_value=10, max_value=1000, value=100)
+        duration = st.number_input("Duration (minutes)", min_value=15, max_value=480, value=60)
+        passing_marks = st.number_input("Passing Marks", min_value=0, max_value=total_marks, value=40)
+        start_date = st.date_input("Start Date")
+        start_time = st.time_input("Start Time")
+        end_date = st.date_input("End Date")
+        end_time = st.time_input("End Time")
+        negative_marking = st.checkbox("Negative Marking", value=True)
+        randomize_q = st.checkbox("Randomize Questions", value=True)
+        randomize_opt = st.checkbox("Randomize Options", value=True)
+
+        if st.form_submit_button("Create Test", use_container_width=True):
+            if test_name and subject_id:
+                start_datetime = datetime.combine(start_date, start_time)
+                end_datetime = datetime.combine(end_date, end_time)
+                db = Database()
+                if db.connect():
+                    db.execute_query(
+                        """INSERT INTO tests (test_name, subject_id, dept_id, created_by, total_marks,
+                           duration_minutes, passing_marks, negative_marking_enabled, randomize_questions,
+                           randomize_options, start_time, end_time, is_published)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)""",
+                        (test_name, subject_id, 1, st.session_state.user_id,
+                         total_marks, duration, passing_marks, negative_marking,
+                         randomize_q, randomize_opt, start_datetime, end_datetime)
+                    )
+                    db.disconnect()
+                    st.success("✓ Test created successfully!")
+                    st.session_state.page = None
+            else:
+                st.error("Please fill required fields")
+
+
+def show_add_user():
+    """Admin add new user"""
+    st.markdown("### ➕ Add New User")
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.page = None
+
+    with st.form("add_user_form"):
+        username = st.text_input("Username *")
+        email = st.text_input("Email *")
+        password = st.text_input("Password *", type="password")
+        full_name = st.text_input("Full Name *")
+        role = st.selectbox("Role", ["student", "faculty", "admin"])
+        department = st.text_input("Department")
+        semester = st.number_input("Semester", min_value=1, max_value=8, value=1)
+
+        if st.form_submit_button("Add User", use_container_width=True):
+            if username and email and password and full_name:
+                auth = get_auth()
+                result = auth.register_user(
+                    username, email, password, full_name, role, department, semester
+                )
+                if result['success']:
+                    st.success("✓ User added successfully!")
+                    st.session_state.page = None
+                else:
+                    st.error(f"Error: {result['message']}")
+            else:
+                st.error("Please fill required fields")
+
+
+def show_edit_user():
+    """Admin edit existing user"""
+    user_id = st.session_state.get('edit_user_id')
+    if not user_id:
+        st.error("No user selected for editing")
+        return
+
+    st.markdown("### ✏️ Edit User")
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.page = None
+        st.session_state.edit_user_id = None
+
+    db = Database()
+    if db.connect():
+        user = db.fetch_one(
+            "SELECT username, email, full_name, role, department, semester, is_active FROM users WHERE user_id = %s",
+            (user_id,)
+        )
+        db.disconnect()
+    else:
+        user = None
+
+    if not user:
+        st.error("Unable to load selected user.")
+        return
+
+    username, email, full_name, role, department, semester, is_active = user
+
+    with st.form("edit_user_form"):
+        new_username = st.text_input("Username *", value=username)
+        new_email = st.text_input("Email *", value=email)
+        new_full_name = st.text_input("Full Name *", value=full_name)
+        new_role = st.selectbox("Role", ["student", "faculty", "admin"], index=["student", "faculty", "admin"].index(role))
+        new_department = st.text_input("Department", value=department or "")
+        new_semester = st.number_input("Semester", min_value=1, max_value=8, value=int(semester) if semester else 1)
+        active = st.checkbox("Active User", value=is_active)
+
+        if st.form_submit_button("Update User", use_container_width=True):
+            db = Database()
+            if db.connect():
+                db.execute_query(
+                    """UPDATE users SET username = %s, email = %s, full_name = %s, role = %s,
+                       department = %s, semester = %s, is_active = %s WHERE user_id = %s""",
+                    (new_username, new_email, new_full_name, new_role,
+                     new_department, new_semester, active, user_id)
+                )
+                db.disconnect()
+                st.success("✓ User updated successfully!")
+                st.session_state.page = None
+                st.session_state.edit_user_id = None
     if db.connect():
         results = db.fetch_all(
             """SELECT tr.result_id, t.test_name, tr.marks_obtained, tr.percentage, tr.grade, tr.passed, tr.created_at
@@ -337,6 +485,10 @@ def show_faculty_dashboard():
     """Faculty dashboard"""
     show_header()
     
+    if st.session_state.get('page') == 'create_test':
+        show_create_test()
+        return
+
     st.markdown(f"### Welcome, {st.session_state.username}!")
     
     tab1, tab2, tab3 = st.tabs(["📋 My Tests", "📊 Analytics", "👥 Students"])
@@ -362,6 +514,13 @@ def show_admin_dashboard():
     
     tab1, tab2, tab3, tab4 = st.tabs(["👥 Users", "🏫 Departments", "📚 Subjects", "⚙️ Settings"])
     
+    if st.session_state.get('page') == 'add_user':
+        show_add_user()
+        return
+    elif st.session_state.get('page') == 'edit_user':
+        show_edit_user()
+        return
+
     with tab1:
         st.markdown("#### User Management")
         if st.button("+ Add New User"):
@@ -389,6 +548,7 @@ def show_admin_dashboard():
                         st.write(status)
                     with col5:
                         if st.button("Edit", key=f"edit_user_{user[0]}"):
+                            st.session_state.edit_user_id = user[0]
                             st.session_state.page = "edit_user"
     
     with tab2:
