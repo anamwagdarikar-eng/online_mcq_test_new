@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -48,9 +49,24 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL", "")
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "")
 
 # College Information (Customize as needed)
-COLLEGE_NAME = os.getenv("COLLEGE_NAME", "XYZ Engineering College")
+COLLEGE_NAME = os.getenv(
+    "COLLEGE_NAME",
+    "Vidya Vikas Institute of Engineering and Technology, Solapur"
+)
 COLLEGE_LOGO_PATH = "assets/college_logo.png"
-ACADEMIC_YEAR = "2024-2025"
+
+def get_academic_year():
+    today = datetime.today()
+    year = today.year
+    if today.month >= 7:
+        start_year = year
+        end_year = year + 1
+    else:
+        start_year = year - 1
+        end_year = year
+    return f"{start_year}-{end_year}"
+
+ACADEMIC_YEAR = os.getenv("ACADEMIC_YEAR", get_academic_year())
 
 # Debug Mode
 DEBUG_MODE = os.getenv("DEBUG_MODE", "False") == "True"

@@ -116,7 +116,7 @@ SESSION_COOKIE_SECURE=True
 ENABLE_HTTPS=True
 
 # College Information
-COLLEGE_NAME=XYZ Engineering College
+COLLEGE_NAME=Vidya Vikas Institute of Engineering and Technology, Solapur
 ACADEMIC_YEAR=2024-2025
 
 # Debug

@@ -30,7 +30,7 @@ services:
     environment:
       DATABASE_URL: postgresql://mcq_user:SecurePassword123!@postgres:5432/mcq_db
       SECRET_KEY: your-secret-key-change-in-production
-      COLLEGE_NAME: "XYZ Engineering College"
+      COLLEGE_NAME: "Vidya Vikas Institute of Engineering and Technology, Solapur"
       DEBUG_MODE: "False"
     depends_on:
       postgres:
