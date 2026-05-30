@@ -16,18 +16,12 @@ from utils.security import get_security
 from database import Database
 from config import ENABLE_FULLSCREEN, ENABLE_TAB_SWITCH_WARNING, AUTO_SUBMIT_ON_TIMEOUT, ENABLE_WEBCAM_INTEGRATION
 
-# MCQ Question imports
+# MCQ Question imports and Webcam support
 try:
     import cv2
     WEBCAM_AVAILABLE = True
 except ImportError:
     WEBCAM_AVAILABLE = False
-
-try:
-    from streamlit_webrtc import webrtc_streamer, RTCConfiguration
-    WEBRTC_AVAILABLE = True
-except ImportError:
-    WEBRTC_AVAILABLE = False
 
 st.set_page_config(page_title="MCQ Test", layout="wide")
 
@@ -260,30 +254,22 @@ def show_question(question, question_number):
             st.rerun()
 
 def init_webcam():
-    """Initialize and display webcam feed for proctoring"""
+    """Initialize and display webcam feed for proctoring using Streamlit camera input"""
     if not ENABLE_WEBCAM_INTEGRATION:
         return False
     
-    if not WEBRTC_AVAILABLE:
-        st.warning("⚠️ WebRTC not available. Webcam monitoring disabled.")
+    if not WEBCAM_AVAILABLE:
+        st.warning("⚠️ OpenCV not available. Webcam monitoring disabled.")
         return False
     
     try:
-        rtc_configuration = RTCConfiguration(
-            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-        )
+        # Use Streamlit's native camera input
+        picture = st.camera_input("📹 Webcam Proctoring - Smile for the camera!")
         
-        webrtc_ctx = webrtc_streamer(
-            key="proctoring-feed",
-            mode="recvonly",
-            rtc_configuration=rtc_configuration,
-            media_stream_constraints={"video": True, "audio": False},
-            async_processing=True,
-            async_processing_timeout=10,
-        )
-        
-        if webrtc_ctx.state.playing:
-            st.info("✓ Webcam feed is active for proctoring")
+        if picture is not None:
+            # Display the captured image
+            st.image(picture, caption="Webcam Feed Captured", use_column_width=True)
+            st.info("✓ Webcam feed captured and monitored for proctoring")
             return True
     except Exception as e:
         st.warning(f"⚠️ Webcam initialization failed: {str(e)}")
