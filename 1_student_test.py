@@ -14,7 +14,20 @@ from datetime import datetime, timedelta
 from utils.test_management import get_test_management
 from utils.security import get_security
 from database import Database
-from config import ENABLE_FULLSCREEN, ENABLE_TAB_SWITCH_WARNING, AUTO_SUBMIT_ON_TIMEOUT
+from config import ENABLE_FULLSCREEN, ENABLE_TAB_SWITCH_WARNING, AUTO_SUBMIT_ON_TIMEOUT, ENABLE_WEBCAM_INTEGRATION
+
+# MCQ Question imports
+try:
+    import cv2
+    WEBCAM_AVAILABLE = True
+except ImportError:
+    WEBCAM_AVAILABLE = False
+
+try:
+    from streamlit_webrtc import webrtc_streamer, RTCConfiguration
+    WEBRTC_AVAILABLE = True
+except ImportError:
+    WEBRTC_AVAILABLE = False
 
 st.set_page_config(page_title="MCQ Test", layout="wide")
 
@@ -246,6 +259,62 @@ def show_question(question, question_number):
             )
             st.rerun()
 
+def init_webcam():
+    """Initialize and display webcam feed for proctoring"""
+    if not ENABLE_WEBCAM_INTEGRATION:
+        return False
+    
+    if not WEBRTC_AVAILABLE:
+        st.warning("⚠️ WebRTC not available. Webcam monitoring disabled.")
+        return False
+    
+    try:
+        rtc_configuration = RTCConfiguration(
+            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+        )
+        
+        webrtc_ctx = webrtc_streamer(
+            key="proctoring-feed",
+            mode="recvonly",
+            rtc_configuration=rtc_configuration,
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True,
+            async_processing_timeout=10,
+        )
+        
+        if webrtc_ctx.state.playing:
+            st.info("✓ Webcam feed is active for proctoring")
+            return True
+    except Exception as e:
+        st.warning(f"⚠️ Webcam initialization failed: {str(e)}")
+        return False
+    
+    return False
+
+def enable_webcam_monitoring():
+    """Enable webcam monitoring during test"""
+    if ENABLE_WEBCAM_INTEGRATION:
+        with st.sidebar:
+            if st.checkbox("Enable Webcam Proctoring", value=False):
+                st.markdown("### 📹 Webcam Proctoring")
+                init_webcam()
+
+def import_mcq_questions(test_id):
+    """Import MCQ questions for the test"""
+    try:
+        test_mgmt = get_test_management()
+        questions = test_mgmt.get_test_questions(test_id, randomize=True)
+        
+        if not questions:
+            st.error("❌ No questions available for this test")
+            return None
+        
+        st.success(f"✓ Successfully loaded {len(questions)} questions")
+        return questions
+    except Exception as e:
+        st.error(f"❌ Error importing questions: {str(e)}")
+        return None
+
 def submit_test():
     """Submit test and calculate results"""
     test_mgmt = get_test_management()
@@ -329,15 +398,16 @@ def main():
     if st.session_state.current_question_idx == 0 and len(st.session_state.responses) == 0:
         show_exam_instructions()
     
+    # Enable webcam monitoring if configured
+    enable_webcam_monitoring()
+    
     # Render timer
     remaining_time = render_timer()
     
-    # Load questions
-    test_mgmt = get_test_management()
-    questions = test_mgmt.get_test_questions(test_id, randomize=True)
+    # Load questions using MCQ import function
+    questions = import_mcq_questions(test_id)
     
     if not questions:
-        st.error("No questions available for this test")
         st.stop()
     
     # Show question palette
