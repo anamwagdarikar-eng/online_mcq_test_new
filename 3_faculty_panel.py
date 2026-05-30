@@ -20,11 +20,18 @@ if 'user_role' not in st.session_state or st.session_state.user_role not in ['fa
     st.error("Access Denied - Faculty/Admin only")
     st.stop()
 
+# Initialize session variables
+if 'show_add_questions' not in st.session_state:
+    st.session_state.show_add_questions = False
+if 'selected_test_id' not in st.session_state:
+    st.session_state.selected_test_id = None
+
 st.markdown("# 👨‍🏫 Faculty Panel")
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📋 Manage Questions",
     "📝 Manage Tests",
+    "➕ Create Test",
     "📊 Test Analytics",
     "📤 Import Questions"
 ])
@@ -159,21 +166,168 @@ with tab2:
                 with col_t3:
                     st.write(f"{test[6]} questions")
                 with col_t4:
-                    if not test[5]:
-                        if st.button("📤 Publish", key=f"pub_test_{test[0]}"):
-                            db = Database()
-                            if db.connect():
-                                db.execute_query(
-                                    "UPDATE tests SET is_published = TRUE WHERE test_id = %s",
-                                    (test[0],)
-                                )
-                                db.disconnect()
-                            st.rerun()
+                    col_add, col_pub = st.columns(2)
+                    with col_add:
+                        if not test[5]:
+                            if st.button("➕ Add Q", key=f"add_q_{test[0]}", help="Add questions to test"):
+                                st.session_state.selected_test_id = test[0]
+                                st.session_state.show_add_questions = True
+                    with col_pub:
+                        if not test[5]:
+                            if st.button("📤 Pub", key=f"pub_test_{test[0]}", help="Publish test"):
+                                db = Database()
+                                if db.connect():
+                                    db.execute_query(
+                                        "UPDATE tests SET is_published = TRUE WHERE test_id = %s",
+                                        (test[0],)
+                                    )
+                                    db.disconnect()
+                                st.rerun()
                 st.divider()
         else:
             st.info("No tests available")
+    
+    # Add questions to test
+    if st.session_state.get('show_add_questions'):
+        st.markdown("---")
+        st.markdown("### ➕ Add Questions to Test")
+        
+        test_id = st.session_state.selected_test_id
+        
+        # Get available questions
+        db = Database()
+        if db.connect():
+            questions = db.fetch_all(
+                """SELECT question_id, question_text, marks, difficulty_level FROM questions 
+                   WHERE created_by = %s AND question_id NOT IN 
+                   (SELECT question_id FROM test_questions WHERE test_id = %s)
+                   ORDER BY created_at DESC""",
+                (st.session_state.user_id, test_id)
+            )
+            db.disconnect()
+        else:
+            questions = []
+        
+        if questions:
+            st.write(f"Available questions: {len(questions)}")
+            
+            # Select questions to add
+            selected_questions = st.multiselect(
+                "Select questions to add (shows: Question | Marks | Difficulty)",
+                options=[q[0] for q in questions],
+                format_func=lambda qid: f"{next(q[1] for q in questions if q[0] == qid)[:60]}... | {next(q[2] for q in questions if q[0] == qid)} marks | {next(q[3] for q in questions if q[0] == qid)}",
+                key=f"add_q_multiselect_{test_id}"
+            )
+            
+            if st.button("✓ Add Selected Questions", key=f"confirm_add_q_{test_id}"):
+                db = Database()
+                if db.connect():
+                    try:
+                        # Get current max order
+                        max_order = db.fetch_one(
+                            "SELECT COALESCE(MAX(question_order), 0) FROM test_questions WHERE test_id = %s",
+                            (test_id,)
+                        )
+                        current_order = max_order[0] if max_order else 0
+                        
+                        for qid in selected_questions:
+                            current_order += 1
+                            # Get question marks
+                            q_marks = next(q[2] for q in questions if q[0] == qid)
+                            
+                            db.execute_query(
+                                """INSERT INTO test_questions (test_id, question_id, question_order, marks, negative_marks)
+                                   VALUES (%s, %s, %s, %s, %s)""",
+                                (test_id, qid, current_order, q_marks, 0.25)
+                            )
+                        
+                        db.disconnect()
+                        st.success(f"✓ Added {len(selected_questions)} questions to test!")
+                        st.session_state.show_add_questions = False
+                        st.rerun()
+                    except Exception as e:
+                        db.disconnect()
+                        st.error(f"Error adding questions: {str(e)}")
+        else:
+            st.info("No questions available to add (Create some questions first)")
 
 with tab3:
+    st.markdown("## ➕ Create New Test")
+    
+    with st.form("create_test_form"):
+        st.markdown("### Test Details")
+        
+        # Get subjects
+        db = Database()
+        if db.connect():
+            subjects = db.fetch_all("SELECT subject_id, subject_name FROM subjects")
+            db.disconnect()
+            subject_options = {s[1]: s[0] for s in subjects} if subjects else {}
+        else:
+            subject_options = {}
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            test_name = st.text_input("Test Name *", placeholder="e.g., Physics Mid Term")
+            subject_name = st.selectbox("Subject *", list(subject_options.keys()) if subject_options else [])
+            
+        with col2:
+            total_marks = st.number_input("Total Marks", min_value=10, max_value=500, value=100)
+            duration = st.number_input("Duration (minutes)", min_value=5, max_value=300, value=60)
+        
+        passing_marks = st.number_input("Passing Marks", min_value=0, max_value=total_marks, value=int(total_marks * 0.4))
+        
+        st.markdown("### Test Settings")
+        col_set1, col_set2, col_set3 = st.columns(3)
+        with col_set1:
+            enable_fullscreen = st.checkbox("Enable Fullscreen", value=True)
+        with col_set2:
+            tab_warnings = st.checkbox("Tab Switch Warnings", value=True)
+        with col_set3:
+            negative_marking = st.checkbox("Negative Marking", value=True)
+        
+        col_rand1, col_rand2 = st.columns(2)
+        with col_rand1:
+            randomize_q = st.checkbox("Randomize Questions", value=True)
+        with col_rand2:
+            randomize_opt = st.checkbox("Randomize Options", value=True)
+        
+        test_description = st.text_area("Test Description (optional)", placeholder="Describe the test, instructions, etc.")
+        
+        if st.form_submit_button("✓ Create Test", use_container_width=True):
+            if test_name and subject_name:
+                subject_id = subject_options.get(subject_name)
+                
+                db = Database()
+                if db.connect():
+                    try:
+                        db.execute_query(
+                            """INSERT INTO tests 
+                               (test_name, subject_id, dept_id, created_by, test_description,
+                                total_marks, duration_minutes, passing_marks, negative_marking_enabled,
+                                enable_fullscreen, enable_tab_warnings, randomize_questions, randomize_options)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (test_name, subject_id, 1, st.session_state.user_id, test_description,
+                             total_marks, duration, passing_marks, negative_marking,
+                             enable_fullscreen, tab_warnings, randomize_q, randomize_opt)
+                        )
+                        
+                        # Get the created test ID
+                        test = db.fetch_one("SELECT LASTVAL();")
+                        test_id = test[0] if test else None
+                        
+                        db.disconnect()
+                        
+                        st.success(f"✓ Test created successfully! (ID: {test_id})")
+                        st.info("👉 Go to 'Manage Tests' tab and click '➕ Add Q' to add questions to this test")
+                        
+                    except Exception as e:
+                        db.disconnect()
+                        st.error(f"Error creating test: {str(e)}")
+            else:
+                st.error("Please fill test name and subject")
+
+with tab4:
     st.markdown("## Test Analytics")
     
     db = Database()
@@ -275,7 +429,7 @@ with tab3:
                 with col_score:
                     st.write(f"{topper[2]:.2f}/100 ({topper[3]:.2f}%) - **{topper[4]}**")
 
-with tab4:
+with tab5:
     st.markdown("## Bulk Import Questions")
     
     st.info("""
