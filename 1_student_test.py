@@ -17,11 +17,7 @@ from database import Database
 from config import ENABLE_FULLSCREEN, ENABLE_TAB_SWITCH_WARNING, AUTO_SUBMIT_ON_TIMEOUT, ENABLE_WEBCAM_INTEGRATION
 
 # MCQ Question imports and Webcam support
-try:
-    import cv2
-    WEBCAM_AVAILABLE = True
-except ImportError:
-    WEBCAM_AVAILABLE = False
+WEBCAM_AVAILABLE = hasattr(st, 'camera_input')
 
 st.set_page_config(page_title="MCQ Test", layout="wide")
 
@@ -259,17 +255,15 @@ def init_webcam():
         return False
     
     if not WEBCAM_AVAILABLE:
-        st.warning("⚠️ OpenCV not available. Webcam monitoring disabled.")
+        st.warning("⚠️ Webcam camera input is not available in this browser. Webcam monitoring disabled.")
         return False
     
     try:
-        # Use Streamlit's native camera input
-        picture = st.camera_input("📹 Webcam Proctoring - Smile for the camera!")
+        picture = st.camera_input("📹 Webcam Proctoring - Please allow camera access.")
         
         if picture is not None:
-            # Display the captured image
-            st.image(picture, caption="Webcam Feed Captured", use_column_width=True)
-            st.info("✓ Webcam feed captured and monitored for proctoring")
+            st.image(picture, caption="Webcam feed captured", use_column_width=True)
+            st.info("✓ Webcam proctoring is active")
             return True
     except Exception as e:
         st.warning(f"⚠️ Webcam initialization failed: {str(e)}")

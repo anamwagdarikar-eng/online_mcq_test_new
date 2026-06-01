@@ -21,8 +21,6 @@ if 'user_role' not in st.session_state or st.session_state.user_role not in ['fa
     st.stop()
 
 # Initialize session variables
-if 'show_add_questions' not in st.session_state:
-    st.session_state.show_add_questions = False
 if 'selected_test_id' not in st.session_state:
     st.session_state.selected_test_id = None
 
@@ -175,22 +173,37 @@ with tab2:
                     with col_pub:
                         if not test[5]:
                             if st.button("📤 Pub", key=f"pub_test_{test[0]}", help="Publish test"):
+                                # Check if test has questions
                                 db = Database()
                                 if db.connect():
-                                    db.execute_query(
-                                        "UPDATE tests SET is_published = TRUE WHERE test_id = %s",
+                                    q_count = db.fetch_one(
+                                        "SELECT COUNT(*) FROM test_questions WHERE test_id = %s",
                                         (test[0],)
                                     )
                                     db.disconnect()
-                                st.rerun()
+                                    
+                                    if q_count and q_count[0] > 0:
+                                        db = Database()
+                                        if db.connect():
+                                            db.execute_query(
+                                                "UPDATE tests SET is_published = TRUE WHERE test_id = %s",
+                                                (test[0],)
+                                            )
+                                            db.disconnect()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Cannot publish: Add at least 1 question first!")
+                        else:
+                            st.write("✓ Published")
                 st.divider()
         else:
             st.info("No tests available")
     
-    # Add questions to test
-    if st.session_state.get('show_add_questions'):
-        st.markdown("---")
-        st.markdown("### ➕ Add Questions to Test")
+    # Add questions to test - Show in a separate section
+    st.markdown("---")
+    
+    if 'selected_test_id' in st.session_state and st.session_state.selected_test_id:
+        st.markdown("### ➕ Add Questions to Selected Test")
         
         test_id = st.session_state.selected_test_id
         
@@ -204,52 +217,78 @@ with tab2:
                    ORDER BY created_at DESC""",
                 (st.session_state.user_id, test_id)
             )
+            
+            # Get already added questions
+            added_questions = db.fetch_all(
+                """SELECT COUNT(*) FROM test_questions WHERE test_id = %s""",
+                (test_id,)
+            )
             db.disconnect()
         else:
             questions = []
+            added_questions = [(0,)]
+        
+        already_added = added_questions[0][0] if added_questions else 0
+        
+        st.info(f"📌 Already added: **{already_added}** questions | Available: **{len(questions)}** new questions")
         
         if questions:
-            st.write(f"Available questions: {len(questions)}")
+            # Create checkboxes for each question
+            st.write("**Select questions to add:**")
             
-            # Select questions to add
-            selected_questions = st.multiselect(
-                "Select questions to add (shows: Question | Marks | Difficulty)",
-                options=[q[0] for q in questions],
-                format_func=lambda qid: f"{next(q[1] for q in questions if q[0] == qid)[:60]}... | {next(q[2] for q in questions if q[0] == qid)} marks | {next(q[3] for q in questions if q[0] == qid)}",
-                key=f"add_q_multiselect_{test_id}"
-            )
+            selected_ids = []
+            for q in questions:
+                checkbox = st.checkbox(
+                    f"✓ {q[1][:70]}... | {q[2]} marks | {q[3]}",
+                    key=f"q_checkbox_{q[0]}"
+                )
+                if checkbox:
+                    selected_ids.append(q[0])
             
-            if st.button("✓ Add Selected Questions", key=f"confirm_add_q_{test_id}"):
-                db = Database()
-                if db.connect():
-                    try:
-                        # Get current max order
-                        max_order = db.fetch_one(
-                            "SELECT COALESCE(MAX(question_order), 0) FROM test_questions WHERE test_id = %s",
-                            (test_id,)
-                        )
-                        current_order = max_order[0] if max_order else 0
-                        
-                        for qid in selected_questions:
-                            current_order += 1
-                            # Get question marks
-                            q_marks = next(q[2] for q in questions if q[0] == qid)
-                            
-                            db.execute_query(
-                                """INSERT INTO test_questions (test_id, question_id, question_order, marks, negative_marks)
-                                   VALUES (%s, %s, %s, %s, %s)""",
-                                (test_id, qid, current_order, q_marks, 0.25)
-                            )
-                        
-                        db.disconnect()
-                        st.success(f"✓ Added {len(selected_questions)} questions to test!")
-                        st.session_state.show_add_questions = False
-                        st.rerun()
-                    except Exception as e:
-                        db.disconnect()
-                        st.error(f"Error adding questions: {str(e)}")
+            col_add, col_cancel = st.columns(2)
+            with col_add:
+                if st.button("✓ Add Selected Questions", use_container_width=True, key="add_questions_button"):
+                    if selected_ids:
+                        db = Database()
+                        if db.connect():
+                            try:
+                                # Get current max order
+                                max_order = db.fetch_one(
+                                    "SELECT COALESCE(MAX(question_order), 0) FROM test_questions WHERE test_id = %s",
+                                    (test_id,)
+                                )
+                                current_order = max_order[0] if max_order else 0
+                                
+                                for qid in selected_ids:
+                                    current_order += 1
+                                    # Get question marks
+                                    q_marks = next(q[2] for q in questions if q[0] == qid)
+                                    
+                                    db.execute_query(
+                                        """INSERT INTO test_questions (test_id, question_id, question_order, marks, negative_marks)
+                                           VALUES (%s, %s, %s, %s, %s)\"\"\",
+                                        (test_id, qid, current_order, q_marks, 0.25)
+                                    )
+                                
+                                db.disconnect()
+                                st.success(f"✓ Added {len(selected_ids)} questions to test!")
+                                st.session_state.selected_test_id = None
+                                st.rerun()
+                            except Exception as e:
+                                db.disconnect()
+                                st.error(f"Error adding questions: {str(e)}")
+                    else:
+                        st.warning("⚠️ Please select at least one question")
+            
+            with col_cancel:
+                if st.button("✕ Cancel", use_container_width=True, key="cancel_add_button"):
+                    st.session_state.selected_test_id = None
+                    st.rerun()
         else:
-            st.info("No questions available to add (Create some questions first)")
+            st.warning("⚠️ No new questions available to add. Create some questions first!")
+            if st.button("✕ Cancel Selection"):
+                st.session_state.selected_test_id = None
+                st.rerun()
 
 with tab3:
     st.markdown("## ➕ Create New Test")
@@ -260,11 +299,13 @@ with tab3:
         # Get subjects
         db = Database()
         if db.connect():
-            subjects = db.fetch_all("SELECT subject_id, subject_name FROM subjects")
+            subjects = db.fetch_all("SELECT subject_id, subject_name, dept_id, semester FROM subjects")
             db.disconnect()
-            subject_options = {s[1]: s[0] for s in subjects} if subjects else {}
+            subject_details = {s[0]: {'name': s[1], 'dept_id': s[2], 'semester': s[3]} for s in subjects}
+            subject_options = {f"{s[1]} (Sem {s[3]})": s[0] for s in subjects} if subjects else {}
         else:
             subject_options = {}
+            subject_details = {}
         
         col1, col2 = st.columns(2)
         with col1:
@@ -276,6 +317,16 @@ with tab3:
             duration = st.number_input("Duration (minutes)", min_value=5, max_value=300, value=60)
         
         passing_marks = st.number_input("Passing Marks", min_value=0, max_value=total_marks, value=int(total_marks * 0.4))
+        
+        st.markdown("### Test Schedule")
+        col_time1, col_time2 = st.columns(2)
+        from datetime import datetime, timedelta
+        with col_time1:
+            start_date = st.date_input("Start Date", datetime.now())
+            start_time = st.time_input("Start Time", datetime.now().time())
+        with col_time2:
+            end_date = st.date_input("End Date", datetime.now() + timedelta(days=1))
+            end_time = st.time_input("End Time", (datetime.now() + timedelta(hours=2)).time())
         
         st.markdown("### Test Settings")
         col_set1, col_set2, col_set3 = st.columns(3)
@@ -297,6 +348,13 @@ with tab3:
         if st.form_submit_button("✓ Create Test", use_container_width=True):
             if test_name and subject_name:
                 subject_id = subject_options.get(subject_name)
+                subject_meta = subject_details.get(subject_id, {})
+                dept_id = subject_meta.get('dept_id', 1)
+                
+                # Convert date and time to datetime
+                from datetime import datetime as dt_class
+                test_start_time = dt_class.combine(start_date, start_time)
+                test_end_time = dt_class.combine(end_date, end_time)
                 
                 db = Database()
                 if db.connect():
@@ -305,11 +363,13 @@ with tab3:
                             """INSERT INTO tests 
                                (test_name, subject_id, dept_id, created_by, test_description,
                                 total_marks, duration_minutes, passing_marks, negative_marking_enabled,
-                                enable_fullscreen, enable_tab_warnings, randomize_questions, randomize_options)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (test_name, subject_id, 1, st.session_state.user_id, test_description,
+                                enable_fullscreen, enable_tab_warnings, randomize_questions, randomize_options,
+                                start_time, end_time)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (test_name, subject_id, dept_id, st.session_state.user_id, test_description,
                              total_marks, duration, passing_marks, negative_marking,
-                             enable_fullscreen, tab_warnings, randomize_q, randomize_opt)
+                             enable_fullscreen, tab_warnings, randomize_q, randomize_opt,
+                             test_start_time, test_end_time)
                         )
                         
                         # Get the created test ID
@@ -320,7 +380,6 @@ with tab3:
                         
                         st.success(f"✓ Test created successfully! (ID: {test_id})")
                         st.info("👉 Go to 'Manage Tests' tab and click '➕ Add Q' to add questions to this test")
-                        
                     except Exception as e:
                         db.disconnect()
                         st.error(f"Error creating test: {str(e)}")
@@ -437,6 +496,17 @@ with tab5:
     - question_text, option_a, option_b, option_c, option_d, correct_answer, difficulty_level, marks
     """)
     
+    db = Database()
+    if db.connect():
+        subjects = db.fetch_all("SELECT subject_id, subject_name, semester FROM subjects")
+        db.disconnect()
+        subject_options = {f"{s[1]} (Sem {s[2]})": s[0] for s in subjects} if subjects else {}
+    else:
+        subject_options = {}
+    
+    subject_name = st.selectbox("Subject for Import *", list(subject_options.keys()) if subject_options else [])
+    subject_id = subject_options.get(subject_name, 1)
+    
     uploaded_file = st.file_uploader("Choose CSV file", type=['csv'])
     
     if uploaded_file:
@@ -447,7 +517,6 @@ with tab5:
         if st.button("Import Questions"):
             db = Database()
             if db.connect():
-                subject_options = {"Default": 1}  # Default subject
                 success_count = 0
                 error_count = 0
                 
@@ -458,13 +527,13 @@ with tab5:
                                (subject_id, question_text, option_a, option_b, option_c, option_d,
                                 correct_answer, difficulty_level, marks, created_by)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (1, row['question_text'], row['option_a'], row['option_b'], 
+                            (subject_id, row['question_text'], row['option_a'], row['option_b'], 
                              row['option_c'], row['option_d'], row['correct_answer'],
                              row['difficulty_level'], row.get('marks', 1), 
                              st.session_state.user_id)
                         )
                         success_count += 1
-                    except Exception as e:
+                    except Exception:
                         error_count += 1
                 
                 db.disconnect()

@@ -173,6 +173,10 @@ if 'user_role' not in st.session_state:
     st.session_state.user_role = None
 if 'username' not in st.session_state:
     st.session_state.username = None
+if 'department' not in st.session_state:
+    st.session_state.department = None
+if 'semester' not in st.session_state:
+    st.session_state.semester = None
 if 'current_test' not in st.session_state:
     st.session_state.current_test = None
 if 'attempt_id' not in st.session_state:
@@ -220,6 +224,8 @@ def show_login():
                 st.session_state.user_id = result['user_id']
                 st.session_state.user_role = result['role']
                 st.session_state.username = result['username']
+                st.session_state.department = result.get('department')
+                st.session_state.semester = result.get('semester')
                 
                 # Log action
                 security.log_audit(
@@ -279,11 +285,25 @@ def show_student_dashboard():
         st.markdown("### 📚 Available Tests")
         db = Database()
         if db.connect():
-            tests = db.fetch_all(
-                """SELECT test_id, test_name, subject_id, duration_minutes, total_marks, start_time, end_time
-                   FROM tests WHERE is_published = TRUE AND NOW() < end_time
-                   ORDER BY start_time"""
-            )
+            if st.session_state.department and st.session_state.semester is not None:
+                tests = db.fetch_all(
+                    """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks, t.start_time, t.end_time
+                       FROM tests t
+                       JOIN subjects s ON t.subject_id = s.subject_id
+                       JOIN departments d ON t.dept_id = d.dept_id
+                       WHERE t.is_published = TRUE
+                         AND NOW() BETWEEN t.start_time AND t.end_time
+                         AND (d.dept_name = %s OR d.dept_code = %s)
+                         AND s.semester = %s
+                       ORDER BY t.start_time""",
+                    (st.session_state.department, st.session_state.department, st.session_state.semester)
+                )
+            else:
+                tests = db.fetch_all(
+                    """SELECT test_id, test_name, subject_id, duration_minutes, total_marks, start_time, end_time
+                       FROM tests WHERE is_published = TRUE AND NOW() BETWEEN start_time AND end_time
+                       ORDER BY start_time"""
+                )
             db.disconnect()
             
             if tests:
@@ -305,10 +325,24 @@ def show_available_tests():
     st.markdown("### 📝 Available Tests")
     db = Database()
     if db.connect():
-        tests = db.fetch_all(
-            """SELECT test_id, test_name, subject_id, duration_minutes, total_marks, start_time, end_time
-               FROM tests WHERE is_published = TRUE AND NOW() < end_time ORDER BY start_time"""
-        )
+        if st.session_state.department and st.session_state.semester is not None:
+            tests = db.fetch_all(
+                """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks, t.start_time, t.end_time
+                   FROM tests t
+                   JOIN subjects s ON t.subject_id = s.subject_id
+                   JOIN departments d ON t.dept_id = d.dept_id
+                   WHERE t.is_published = TRUE
+                     AND NOW() BETWEEN t.start_time AND t.end_time
+                     AND (d.dept_name = %s OR d.dept_code = %s)
+                     AND s.semester = %s
+                   ORDER BY t.start_time""",
+                (st.session_state.department, st.session_state.department, st.session_state.semester)
+            )
+        else:
+            tests = db.fetch_all(
+                """SELECT test_id, test_name, subject_id, duration_minutes, total_marks, start_time, end_time
+                   FROM tests WHERE is_published = TRUE AND NOW() BETWEEN start_time AND end_time ORDER BY start_time"""
+            )
         db.disconnect()
 
         if tests:
@@ -475,16 +509,21 @@ def show_create_test():
 
     db = Database()
     if db.connect():
-        subjects = db.fetch_all("SELECT subject_id, subject_name FROM subjects")
+        subjects = db.fetch_all("SELECT subject_id, subject_name, dept_id, semester FROM subjects")
         db.disconnect()
-        subject_options = {s[1]: s[0] for s in subjects}
+        subject_details = {s[0]: {'name': s[1], 'dept_id': s[2], 'semester': s[3]} for s in subjects}
+        subject_options = {f"{s[1]} (Sem {s[3]})": s[0] for s in subjects}
     else:
         subject_options = {}
+        subject_details = {}
 
     with st.form("create_test_form"):
         test_name = st.text_input("Test Name *")
         subject_name = st.selectbox("Subject *", list(subject_options.keys()) if subject_options else [])
         subject_id = subject_options.get(subject_name)
+        subject_meta = subject_details.get(subject_id, {})
+        dept_id = subject_meta.get('dept_id', 1)
+        subject_semester = subject_meta.get('semester')
         total_marks = st.number_input("Total Marks", min_value=10, max_value=1000, value=100)
         duration = st.number_input("Duration (minutes)", min_value=15, max_value=480, value=60)
         default_passing = min(40, total_marks)
@@ -513,7 +552,7 @@ def show_create_test():
                            duration_minutes, passing_marks, negative_marking_enabled, randomize_questions,
                            randomize_options, start_time, end_time, is_published)
                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)""",
-                        (test_name, subject_id, 1, st.session_state.user_id,
+                        (test_name, subject_id, dept_id, st.session_state.user_id,
                          total_marks, duration, passing_marks, negative_marking,
                          randomize_q, randomize_opt, start_datetime, end_datetime)
                     )

@@ -68,7 +68,7 @@ class Auth:
 
             # Get user by username or email
             user = self.db.fetch_one(
-                """SELECT user_id, username, password_hash, role, is_active 
+                """SELECT user_id, username, password_hash, role, department, semester, is_active 
                    FROM users 
                    WHERE username = %s OR email = %s""",
                 (username, username)
@@ -82,7 +82,7 @@ class Auth:
                 self.db.disconnect()
                 return {"success": False, "message": "Invalid credentials"}
 
-            user_id, user_name, password_hash, role, is_active = user
+            user_id, user_name, password_hash, role, department, semester, is_active = user
 
             # Check if user is active
             if not is_active:
@@ -120,6 +120,8 @@ class Auth:
                 "user_id": user_id,
                 "username": user_name,
                 "role": role,
+                "department": department,
+                "semester": semester,
                 "session_token": session_token
             }
         except Exception as e:
