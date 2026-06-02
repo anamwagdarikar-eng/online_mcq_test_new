@@ -60,9 +60,10 @@ if _project_root_str not in sys.path:
     sys.path.insert(0, _project_root_str)
 
 import streamlit as st
+import pandas as pd
 from datetime import datetime, timedelta
 
-from config import APP_NAME, COLLEGE_NAME, ACADEMIC_YEAR, SESSION_TIMEOUT
+from config import APP_NAME, COLLEGE_NAME, ACADEMIC_YEAR, SESSION_TIMEOUT, ENABLE_WEBCAM_INTEGRATION
 from utils.auth import get_auth
 from utils.security import get_security
 from utils.test_management import get_test_management
@@ -182,6 +183,33 @@ if 'current_test' not in st.session_state:
 if 'attempt_id' not in st.session_state:
     st.session_state.attempt_id = None
 
+WEBCAM_AVAILABLE = hasattr(st, 'camera_input')
+
+def render_webcam_proctoring():
+    """Render webcam proctoring panel for students."""
+    if not ENABLE_WEBCAM_INTEGRATION:
+        return False
+
+    if not WEBCAM_AVAILABLE:
+        st.warning("⚠️ Webcam proctoring is enabled but not supported in this browser.")
+        return False
+
+    picture = st.camera_input("📹 Webcam Proctoring - Please allow camera access.")
+    if picture is not None:
+        st.image(picture, caption="Webcam feed captured", use_column_width=True)
+        st.success("✓ Webcam proctoring active")
+        return True
+
+    st.info("Please allow camera access for webcam monitoring.")
+    return False
+
+
+def normalize_semester(value):
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return value
+
+
 def show_header():
     """Display college header"""
     st.markdown(f"""
@@ -285,32 +313,35 @@ def show_student_dashboard():
         st.markdown("### 📚 Available Tests")
         db = Database()
         if db.connect():
-            if st.session_state.department and st.session_state.semester is not None:
+            student_semester = normalize_semester(st.session_state.semester)
+            if st.session_state.department and student_semester is not None:
                 tests = db.fetch_all(
                     """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks, t.start_time, t.end_time
                        FROM tests t
                        JOIN subjects s ON t.subject_id = s.subject_id
                        JOIN departments d ON t.dept_id = d.dept_id
                        WHERE t.is_published = TRUE
-                         AND NOW() BETWEEN t.start_time AND t.end_time
-                         AND (d.dept_name = %s OR d.dept_code = %s)
+                         AND (NOW() BETWEEN t.start_time AND t.end_time OR t.start_time > NOW())
+                         AND (LOWER(d.dept_name) = LOWER(%s) OR LOWER(d.dept_code) = LOWER(%s))
                          AND s.semester = %s
                        ORDER BY t.start_time""",
-                    (st.session_state.department, st.session_state.department, st.session_state.semester)
+                    (st.session_state.department, st.session_state.department, student_semester)
                 )
             else:
                 tests = db.fetch_all(
                     """SELECT test_id, test_name, subject_id, duration_minutes, total_marks, start_time, end_time
-                       FROM tests WHERE is_published = TRUE AND NOW() BETWEEN start_time AND end_time
+                       FROM tests WHERE is_published = TRUE AND (NOW() BETWEEN start_time AND end_time OR start_time > NOW())
                        ORDER BY start_time"""
                 )
             db.disconnect()
             
             if tests:
+                now = datetime.now()
                 for test in tests:
+                    status = "Upcoming" if test[5] and test[5] > now else "Live"
                     col1, col2, col3 = st.columns([2, 1, 1])
                     with col1:
-                        st.write(f"**{test[1]}**")
+                        st.write(f"**{test[1]}** — {status}")
                     with col2:
                         st.write(f"⏱️ {test[3]} mins | 📍 {test[4]} marks")
                     with col3:
@@ -325,31 +356,34 @@ def show_available_tests():
     st.markdown("### 📝 Available Tests")
     db = Database()
     if db.connect():
-        if st.session_state.department and st.session_state.semester is not None:
+        student_semester = normalize_semester(st.session_state.semester)
+        if st.session_state.department and student_semester is not None:
             tests = db.fetch_all(
                 """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks, t.start_time, t.end_time
                    FROM tests t
                    JOIN subjects s ON t.subject_id = s.subject_id
                    JOIN departments d ON t.dept_id = d.dept_id
                    WHERE t.is_published = TRUE
-                     AND NOW() BETWEEN t.start_time AND t.end_time
-                     AND (d.dept_name = %s OR d.dept_code = %s)
+                     AND (NOW() BETWEEN t.start_time AND t.end_time OR t.start_time > NOW())
+                     AND (LOWER(d.dept_name) = LOWER(%s) OR LOWER(d.dept_code) = LOWER(%s))
                      AND s.semester = %s
                    ORDER BY t.start_time""",
-                (st.session_state.department, st.session_state.department, st.session_state.semester)
+                (st.session_state.department, st.session_state.department, student_semester)
             )
         else:
             tests = db.fetch_all(
                 """SELECT test_id, test_name, subject_id, duration_minutes, total_marks, start_time, end_time
-                   FROM tests WHERE is_published = TRUE AND NOW() BETWEEN start_time AND end_time ORDER BY start_time"""
+                   FROM tests WHERE is_published = TRUE AND (NOW() BETWEEN start_time AND end_time OR start_time > NOW()) ORDER BY start_time"""
             )
         db.disconnect()
 
         if tests:
+            now = datetime.now()
             for test in tests:
+                status = "Upcoming" if test[5] and test[5] > now else "Live"
                 col1, col2, col3 = st.columns([2, 1, 1])
                 with col1:
-                    st.write(f"**{test[1]}**")
+                    st.write(f"**{test[1]}** — {status}")
                 with col2:
                     st.write(f"⏱️ {test[3]} mins | 📍 {test[4]} marks")
                 with col3:
@@ -385,6 +419,9 @@ def show_student_test():
     st.markdown(f"### 📝 Test: {test_name}")
     st.write(f"Total Marks: {total_marks} | Duration: {duration_minutes} minutes")
     st.write(f"Start Time: {start_time} | End Time: {end_time}")
+
+    if ENABLE_WEBCAM_INTEGRATION:
+        render_webcam_proctoring()
 
     if st.button("⬅️ Back to Dashboard"):
         st.session_state.current_test = None
@@ -557,7 +594,7 @@ def show_create_test():
                          randomize_q, randomize_opt, start_datetime, end_datetime)
                     )
                     db.disconnect()
-                    st.success("✓ Test created successfully!")
+                    st.success("✓ Test draft created. Add questions and publish it from My Tests.")
                     st.session_state.page = None
             else:
                 st.error("Please fill required fields")
@@ -889,6 +926,133 @@ def show_faculty_students():
         st.info("No students available yet.")
 
 
+def show_faculty_tests():
+    """Display faculty-created tests and publish workflow."""
+    st.markdown("#### My Tests")
+    st.write("Create tests, then add questions and publish them for students in the matching branch and semester.")
+
+    db = Database()
+    if db.connect():
+        tests = db.fetch_all(
+            """SELECT t.test_id, t.test_name, t.total_marks, t.duration_minutes, t.is_published,
+                         t.start_time, t.end_time,
+                         (SELECT COUNT(*) FROM test_questions tq WHERE tq.test_id = t.test_id)
+                FROM tests t
+                WHERE t.created_by = %s
+                ORDER BY t.created_at DESC
+            """,
+            (st.session_state.user_id,)
+        )
+        db.disconnect()
+    else:
+        tests = []
+
+    if tests:
+        now = datetime.now()
+        for test in tests:
+            status = "Published" if test[4] else "Draft"
+            if test[5] and test[5] > now:
+                schedule = f"Starts: {test[5]}"
+            else:
+                schedule = f"Ends: {test[6]}"
+
+            with st.expander(f"{test[1]} — {status} — {test[7]} questions"):
+                st.write(f"Total Marks: {test[2]} | Duration: {test[3]} mins")
+                st.write(schedule)
+                if test[4]:
+                    st.success("This test is published and available for eligible students.")
+                else:
+                    if test[7] == 0:
+                        st.warning("Add questions to this test before it can be published.")
+                    else:
+                        if st.button("Publish Test", key=f"publish_test_{test[0]}"):
+                            db = Database()
+                            if db.connect():
+                                db.execute_query("UPDATE tests SET is_published = TRUE WHERE test_id = %s", (test[0],))
+                                db.disconnect()
+                            st.success("✓ Test published successfully")
+                            st.experimental_rerun()
+    else:
+        st.info("No tests created yet. Use the Create New Test button above.")
+
+
+def show_faculty_import_questions():
+    """Allow faculty to upload MCQ questions for a subject."""
+    st.markdown("#### Import Questions")
+    st.info(
+        "Upload a CSV with columns: question_text, option_a, option_b, option_c, option_d, correct_answer, difficulty_level, marks"
+    )
+
+    db = Database()
+    if db.connect():
+        subjects = db.fetch_all("SELECT subject_id, subject_name, dept_id, semester FROM subjects")
+        db.disconnect()
+    else:
+        subjects = []
+
+    subject_options = {f"{s[1]} (Sem {s[3]})": s[0] for s in subjects} if subjects else {}
+    subject_name = st.selectbox("Subject *", list(subject_options.keys()) if subject_options else [])
+    subject_id = subject_options.get(subject_name)
+
+    uploaded_file = st.file_uploader("Choose CSV file", type=['csv'])
+    if uploaded_file:
+        try:
+            df = pd.read_csv(uploaded_file)
+            st.write(df.head())
+        except Exception as e:
+            st.error(f"Unable to read CSV file: {e}")
+            return
+
+        if st.button("Import Questions"):
+            required_columns = [
+                'question_text', 'option_a', 'option_b', 'option_c', 'option_d',
+                'correct_answer', 'difficulty_level', 'marks'
+            ]
+            missing = [col for col in required_columns if col not in df.columns]
+            if missing:
+                st.error(f"Missing required columns: {', '.join(missing)}")
+                return
+            if not subject_id:
+                st.error("Select a valid subject before importing questions.")
+                return
+
+            db = Database()
+            if not db.connect():
+                st.error("Database connection failed.")
+                return
+
+            success_count = 0
+            error_count = 0
+            for _, row in df.iterrows():
+                try:
+                    db.execute_query(
+                        """INSERT INTO questions (
+                               subject_id, question_text, option_a, option_b, option_c, option_d,
+                               correct_answer, difficulty_level, marks, created_by)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (
+                            subject_id,
+                            row['question_text'],
+                            row['option_a'],
+                            row['option_b'],
+                            row['option_c'],
+                            row['option_d'],
+                            row['correct_answer'],
+                            row['difficulty_level'],
+                            int(row['marks']),
+                            st.session_state.user_id,
+                        )
+                    )
+                    success_count += 1
+                except Exception:
+                    error_count += 1
+
+            db.disconnect()
+            st.success(f"✓ Imported {success_count} questions")
+            if error_count:
+                st.warning(f"⚠️ {error_count} rows failed to import.")
+
+
 def show_faculty_dashboard():
     """Faculty dashboard"""
     show_header()
@@ -899,18 +1063,22 @@ def show_faculty_dashboard():
 
     st.markdown(f"### Welcome, {st.session_state.username}!")
     
-    tab1, tab2, tab3 = st.tabs(["📋 My Tests", "📊 Analytics", "👥 Students"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 My Tests", "📊 Analytics", "👥 Students", "📤 Import Questions"])
     
     with tab1:
         st.markdown("#### Create/Manage Tests")
         if st.button("+ Create New Test"):
             st.session_state.page = "create_test"
+        show_faculty_tests()
     
     with tab2:
         show_faculty_analytics()
     
     with tab3:
         show_faculty_students()
+    
+    with tab4:
+        show_faculty_import_questions()
 
 def show_admin_dashboard():
     """Admin dashboard"""

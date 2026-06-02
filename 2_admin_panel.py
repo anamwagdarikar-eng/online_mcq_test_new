@@ -80,17 +80,24 @@ with tab1:
                             start_datetime = datetime.combine(start_date, start_time)
                             end_datetime = datetime.combine(end_date, end_time)
                             
+                            # Determine subject department so the test is linked to the correct branch
+                            subject_info = db.fetch_one(
+                                "SELECT dept_id FROM subjects WHERE subject_id = %s",
+                                (subject_id,)
+                            )
+                            dept_id = subject_info[0] if subject_info else 1
+
                             db.execute_query(
                                 """INSERT INTO tests (test_name, subject_id, dept_id, created_by, 
                                    total_marks, duration_minutes, passing_marks, negative_marking_enabled,
-                                   randomize_questions, randomize_options, start_time, end_time)
-                                   VALUES (%s, %s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                                (test_name, subject_id, st.session_state.user_id, total_marks,
+                                   randomize_questions, randomize_options, start_time, end_time, is_published)
+                                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)""",
+                                (test_name, subject_id, dept_id, st.session_state.user_id, total_marks,
                                  duration, passing_marks, negative_marking, randomize_q, randomize_opt,
                                  start_datetime, end_datetime)
                             )
                             db.disconnect()
-                            st.success("✓ Test created successfully!")
+                            st.success("✓ Test draft created successfully. Add questions then publish it.")
                     except Exception as e:
                         st.error(f"Error: {e}")
                 else:

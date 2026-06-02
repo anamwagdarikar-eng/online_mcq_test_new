@@ -266,7 +266,7 @@ with tab2:
                                     
                                     db.execute_query(
                                         """INSERT INTO test_questions (test_id, question_id, question_order, marks, negative_marks)
-                                           VALUES (%s, %s, %s, %s, %s)\"\"\",
+                                           VALUES (%s, %s, %s, %s, %s)""",
                                         (test_id, qid, current_order, q_marks, 0.25)
                                     )
                                 
@@ -378,8 +378,8 @@ with tab3:
                         
                         db.disconnect()
                         
-                        st.success(f"✓ Test created successfully! (ID: {test_id})")
-                        st.info("👉 Go to 'Manage Tests' tab and click '➕ Add Q' to add questions to this test")
+                        st.success(f"✓ Test draft created successfully! (ID: {test_id})")
+                        st.info("👉 Go to 'Manage Tests' tab and click '➕ Add Q' to add questions to this test before publishing it")
                     except Exception as e:
                         db.disconnect()
                         st.error(f"Error creating test: {str(e)}")
@@ -527,10 +527,18 @@ with tab5:
                                (subject_id, question_text, option_a, option_b, option_c, option_d,
                                 correct_answer, difficulty_level, marks, created_by)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (subject_id, row['question_text'], row['option_a'], row['option_b'], 
-                             row['option_c'], row['option_d'], row['correct_answer'],
-                             row['difficulty_level'], row.get('marks', 1), 
-                             st.session_state.user_id)
+                            (
+                                subject_id,
+                                row['question_text'],
+                                row['option_a'],
+                                row['option_b'],
+                                row['option_c'],
+                                row['option_d'],
+                                row['correct_answer'],
+                                row['difficulty_level'],
+                                int(row.get('marks', 1)),
+                                st.session_state.user_id,
+                            )
                         )
                         success_count += 1
                     except Exception:
