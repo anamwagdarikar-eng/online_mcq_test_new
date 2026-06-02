@@ -489,13 +489,14 @@ with tab4:
                     st.write(f"{topper[2]:.2f}/100 ({topper[3]:.2f}%) - **{topper[4]}**")
 
 with tab5:
-    st.markdown("## Bulk Import Questions")
+    st.markdown("## Bulk Import Questions to Test")
     
     st.info("""
-    Upload CSV file with questions. Format:
-    - question_text, option_a, option_b, option_c, option_d, correct_answer, difficulty_level, marks
+    Upload CSV file with questions and add them to your selected test.
+    Format: question_text, option_a, option_b, option_c, option_d, correct_answer, difficulty_level, marks
     """)
     
+    # Get subjects and tests
     db = Database()
     if db.connect():
         subjects = db.fetch_all("SELECT subject_id, subject_name, semester FROM subjects")
@@ -504,8 +505,29 @@ with tab5:
     else:
         subject_options = {}
     
-    subject_name = st.selectbox("Subject for Import *", list(subject_options.keys()) if subject_options else [])
-    subject_id = subject_options.get(subject_name, 1)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        subject_name = st.selectbox("Subject for Import *", list(subject_options.keys()) if subject_options else [])
+        subject_id = subject_options.get(subject_name, 1)
+    
+    with col2:
+        # Get tests for this subject created by faculty
+        db = Database()
+        if db.connect():
+            tests = db.fetch_all(
+                """SELECT test_id, test_name FROM tests 
+                   WHERE subject_id = %s AND created_by = %s
+                   ORDER BY created_at DESC""",
+                (subject_id, st.session_state.user_id)
+            )
+            db.disconnect()
+            test_options = {f"{t[1]}" : t[0] for t in tests} if tests else {}
+        else:
+            test_options = {}
+        
+        selected_test_name = st.selectbox("Select Test to Add Questions *", list(test_options.keys()) if test_options else ["No tests available"])
+        selected_test_id = test_options.get(selected_test_name)
     
     uploaded_file = st.file_uploader("Choose CSV file", type=['csv'])
     
@@ -514,37 +536,70 @@ with tab5:
         st.write("Preview:")
         st.dataframe(df.head())
         
-        if st.button("Import Questions"):
-            db = Database()
-            if db.connect():
-                success_count = 0
-                error_count = 0
-                
-                for idx, row in df.iterrows():
-                    try:
-                        db.execute_query(
-                            """INSERT INTO questions 
-                               (subject_id, question_text, option_a, option_b, option_c, option_d,
-                                correct_answer, difficulty_level, marks, created_by)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (
-                                subject_id,
-                                row['question_text'],
-                                row['option_a'],
-                                row['option_b'],
-                                row['option_c'],
-                                row['option_d'],
-                                row['correct_answer'],
-                                row['difficulty_level'],
-                                int(row.get('marks', 1)),
-                                st.session_state.user_id,
+        if st.button("Import Questions & Add to Test"):
+            if not selected_test_id:
+                st.error("❌ Please select a test first")
+            else:
+                db = Database()
+                if db.connect():
+                    success_count = 0
+                    error_count = 0
+                    
+                    # Get current max question order in test
+                    max_order = db.fetch_one(
+                        "SELECT COALESCE(MAX(question_order), 0) FROM test_questions WHERE test_id = %s",
+                        (selected_test_id,)
+                    )
+                    question_order = max_order[0] + 1 if max_order else 1
+                    
+                    for idx, row in df.iterrows():
+                        try:
+                            # Insert into questions table
+                            db.execute_query(
+                                """INSERT INTO questions 
+                                   (subject_id, question_text, option_a, option_b, option_c, option_d,
+                                    correct_answer, difficulty_level, marks, created_by)
+                                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                                (
+                                    subject_id,
+                                    row['question_text'],
+                                    row['option_a'],
+                                    row['option_b'],
+                                    row['option_c'],
+                                    row['option_d'],
+                                    row['correct_answer'],
+                                    row['difficulty_level'],
+                                    int(row.get('marks', 1)),
+                                    st.session_state.user_id,
+                                )
                             )
-                        )
-                        success_count += 1
-                    except Exception:
-                        error_count += 1
-                
-                db.disconnect()
-                st.success(f"✓ Imported {success_count} questions")
-                if error_count > 0:
-                    st.warning(f"⚠️ {error_count} questions failed to import")
+                            
+                            # Get the newly inserted question ID
+                            question = db.fetch_one("SELECT LASTVAL();")
+                            question_id = question[0] if question else None
+                            
+                            if question_id:
+                                # Add to test_questions table
+                                db.execute_query(
+                                    """INSERT INTO test_questions 
+                                       (test_id, question_id, question_order, marks, negative_marks)
+                                       VALUES (%s, %s, %s, %s, %s)""",
+                                    (
+                                        selected_test_id,
+                                        question_id,
+                                        question_order,
+                                        int(row.get('marks', 1)),
+                                        float(row.get('negative_marks', 0.25))
+                                    )
+                                )
+                                question_order += 1
+                                success_count += 1
+                        except Exception as e:
+                            error_count += 1
+                    
+                    db.disconnect()
+                    st.success(f"✓ Imported and added {success_count} questions to test!")
+                    st.info(f"📌 Questions are now part of your test '{selected_test_name}'")
+                    if error_count > 0:
+                        st.warning(f"⚠️ {error_count} questions failed to import")
+                    st.rerun()

@@ -978,7 +978,7 @@ def show_faculty_tests():
 
 def show_faculty_import_questions():
     """Allow faculty to upload MCQ questions for a subject."""
-    st.markdown("#### Import Questions")
+    st.markdown("#### Import Questions to Test")
     st.info(
         "Upload a CSV with columns: question_text, option_a, option_b, option_c, option_d, correct_answer, difficulty_level, marks"
     )
@@ -991,8 +991,32 @@ def show_faculty_import_questions():
         subjects = []
 
     subject_options = {f"{s[1]} (Sem {s[3]})": s[0] for s in subjects} if subjects else {}
-    subject_name = st.selectbox("Subject *", list(subject_options.keys()) if subject_options else [])
-    subject_id = subject_options.get(subject_name)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        subject_name = st.selectbox("Subject *", list(subject_options.keys()) if subject_options else [])
+        subject_id = subject_options.get(subject_name)
+    
+    with col2:
+        # Get tests for selected subject
+        if subject_id:
+            db = Database()
+            if db.connect():
+                tests = db.fetch_all(
+                    """SELECT test_id, test_name FROM tests 
+                       WHERE subject_id = %s
+                       ORDER BY created_at DESC""",
+                    (subject_id,)
+                )
+                db.disconnect()
+                test_options = {f"{t[1]}": t[0] for t in tests} if tests else {}
+            else:
+                test_options = {}
+        else:
+            test_options = {}
+        
+        selected_test_name = st.selectbox("Select Test to Add Questions *", list(test_options.keys()) if test_options else ["No tests available"])
+        selected_test_id = test_options.get(selected_test_name)
 
     uploaded_file = st.file_uploader("Choose CSV file", type=['csv'])
     if uploaded_file:
@@ -1003,7 +1027,7 @@ def show_faculty_import_questions():
             st.error(f"Unable to read CSV file: {e}")
             return
 
-        if st.button("Import Questions"):
+        if st.button("Import Questions & Add to Test"):
             required_columns = [
                 'question_text', 'option_a', 'option_b', 'option_c', 'option_d',
                 'correct_answer', 'difficulty_level', 'marks'
@@ -1015,6 +1039,9 @@ def show_faculty_import_questions():
             if not subject_id:
                 st.error("Select a valid subject before importing questions.")
                 return
+            if not selected_test_id:
+                st.error("Select a test to add questions to.")
+                return
 
             db = Database()
             if not db.connect():
@@ -1023,8 +1050,17 @@ def show_faculty_import_questions():
 
             success_count = 0
             error_count = 0
+            
+            # Get current max question order in test
+            max_order = db.fetch_one(
+                "SELECT COALESCE(MAX(question_order), 0) FROM test_questions WHERE test_id = %s",
+                (selected_test_id,)
+            )
+            question_order = max_order[0] + 1 if max_order else 1
+            
             for _, row in df.iterrows():
                 try:
+                    # Insert into questions table
                     db.execute_query(
                         """INSERT INTO questions (
                                subject_id, question_text, option_a, option_b, option_c, option_d,
@@ -1043,12 +1079,33 @@ def show_faculty_import_questions():
                             st.session_state.user_id,
                         )
                     )
-                    success_count += 1
+                    
+                    # Get the newly inserted question ID
+                    question = db.fetch_one("SELECT LASTVAL();")
+                    question_id = question[0] if question else None
+                    
+                    if question_id:
+                        # Add to test_questions table
+                        db.execute_query(
+                            """INSERT INTO test_questions 
+                               (test_id, question_id, question_order, marks, negative_marks)
+                               VALUES (%s, %s, %s, %s, %s)""",
+                            (
+                                selected_test_id,
+                                question_id,
+                                question_order,
+                                int(row['marks']),
+                                float(row.get('negative_marks', 0.25))
+                            )
+                        )
+                        question_order += 1
+                        success_count += 1
                 except Exception:
                     error_count += 1
 
             db.disconnect()
-            st.success(f"✓ Imported {success_count} questions")
+            st.success(f"✓ Imported and added {success_count} questions to test!")
+            st.info(f"📌 Questions are now part of your selected test")
             if error_count:
                 st.warning(f"⚠️ {error_count} rows failed to import.")
 
