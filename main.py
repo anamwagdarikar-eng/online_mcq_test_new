@@ -587,14 +587,14 @@ def show_create_test():
                     db.execute_query(
                         """INSERT INTO tests (test_name, subject_id, dept_id, created_by, total_marks,
                            duration_minutes, passing_marks, negative_marking_enabled, randomize_questions,
-                           randomize_options, start_time, end_time, is_published)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)""",
+                           randomize_options, start_time, end_time, is_published, show_results)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, TRUE)""",
                         (test_name, subject_id, dept_id, st.session_state.user_id,
                          total_marks, duration, passing_marks, negative_marking,
                          randomize_q, randomize_opt, start_datetime, end_datetime)
                     )
                     db.disconnect()
-                    st.success("✓ Test draft created. Add questions and publish it from My Tests.")
+                    st.success("✓ Test created and published automatically. Students can now see it if timing and branch match.")
                     st.session_state.page = None
             else:
                 st.error("Please fill required fields")
