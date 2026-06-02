@@ -61,9 +61,9 @@ if _project_root_str not in sys.path:
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from config import APP_NAME, COLLEGE_NAME, ACADEMIC_YEAR, SESSION_TIMEOUT, ENABLE_WEBCAM_INTEGRATION
+from config import APP_NAME, COLLEGE_NAME, ACADEMIC_YEAR, SESSION_TIMEOUT, AUTO_SUBMIT_ON_TIMEOUT, ENABLE_WEBCAM_INTEGRATION
 from utils.auth import get_auth
 from utils.security import get_security
 from utils.test_management import get_test_management
@@ -200,8 +200,115 @@ def render_webcam_proctoring():
         st.success("✓ Webcam proctoring active")
         return True
 
-    st.info("Please allow camera access for webcam monitoring.")
+    st.info("Please allow camera access for webcam monitoring. If your webcam is not detected, refresh the page and allow browser access.")
     return False
+
+IST_ZONE = timezone(timedelta(hours=5, minutes=30))
+
+def convert_to_ist(dt):
+    if dt is None:
+        return None
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt)
+        except ValueError:
+            return dt
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST_ZONE)
+
+
+def format_ist(dt):
+    dt = convert_to_ist(dt)
+    if dt is None:
+        return ""
+    return dt.strftime("%Y-%m-%d %H:%M:%S IST")
+
+
+def get_student_test_attempt_status(test_id, student_id):
+    db = Database()
+    if not db.connect():
+        return None
+    attempt = db.fetch_one(
+        """SELECT status FROM test_attempts
+           WHERE test_id = %s AND student_id = %s
+           ORDER BY attempt_id DESC LIMIT 1""",
+        (test_id, student_id)
+    )
+    db.disconnect()
+    return attempt[0] if attempt else None
+
+
+def get_in_progress_attempt(test_id, student_id):
+    db = Database()
+    if not db.connect():
+        return None
+    attempt = db.fetch_one(
+        """SELECT attempt_id, start_time FROM test_attempts
+           WHERE test_id = %s AND student_id = %s AND status = 'in_progress'
+           ORDER BY attempt_id DESC LIMIT 1""",
+        (test_id, student_id)
+    )
+    db.disconnect()
+    if not attempt:
+        return None
+    return {'attempt_id': attempt[0], 'start_time': attempt[1]}
+
+
+def get_time_remaining():
+    if st.session_state.start_time is None or st.session_state.duration_minutes is None:
+        return None
+    start_time = st.session_state.start_time
+    if isinstance(start_time, str):
+        try:
+            start_time = datetime.fromisoformat(start_time)
+        except ValueError:
+            start_time = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
+
+    if start_time.tzinfo is None:
+        start_time = start_time.replace(tzinfo=timezone.utc).astimezone(IST_ZONE)
+
+    elapsed = (datetime.now(IST_ZONE) - start_time).total_seconds()
+    remaining = st.session_state.duration_minutes * 60 - elapsed
+    return max(0, remaining)
+
+
+def format_time(seconds):
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def render_timer():
+    remaining = get_time_remaining()
+    if remaining is None:
+        return None
+
+    if remaining <= 0:
+        st.error("⏱️ Time's up! Your test is being auto-submitted now.")
+        if AUTO_SUBMIT_ON_TIMEOUT and st.session_state.get('current_test') is not None:
+            test_mgmt = get_test_management()
+            result = test_mgmt.submit_test(st.session_state.current_test, st.session_state.user_id)
+            if result.get('success'):
+                output = result['results']
+                st.success("✓ Test auto-submitted successfully.")
+                st.markdown(f"**Score:** {output['marks_obtained']:.2f} / {output['total_marks']}")
+                st.markdown(f"**Grade:** {output['grade']} | **Percentage:** {output['percentage']}%")
+            else:
+                st.error("Unable to auto-submit the test. Please contact support.")
+        st.session_state.current_test = None
+        st.session_state.test_attempt_started = False
+        st.session_state.attempt_id = None
+        st.session_state.responses = {}
+        st.stop()
+
+    label = f"⏰ Time Remaining: {format_time(remaining)}"
+    if remaining < 300:
+        st.markdown(f'<div class="timer-warning">{label}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="timer-normal">{label}</div>', unsafe_allow_html=True)
+    return remaining
 
 
 def normalize_semester(value):
@@ -345,9 +452,18 @@ def show_student_dashboard():
                     with col2:
                         st.write(f"⏱️ {test[3]} mins | 📍 {test[4]} marks")
                     with col3:
-                        if st.button(f"Start Test", key=f"test_{test[0]}"):
-                            st.session_state.current_test = test[0]
-                            st.rerun()
+                        test_id = test[0]
+                        attempt_status = get_student_test_attempt_status(test_id, st.session_state.user_id)
+                        if attempt_status in ('submitted', 'auto_submitted'):
+                            st.warning("You have already attempted this test. You can view your score in My Results.")
+                        elif attempt_status == 'in_progress':
+                            if st.button("Resume Test", key=f"avail_test_{test_id}"):
+                                st.session_state.current_test = test_id
+                                st.rerun()
+                        else:
+                            if st.button(f"Start Test", key=f"avail_test_{test_id}"):
+                                st.session_state.current_test = test_id
+                                st.rerun()
             else:
                 st.info("No tests available at the moment.")
 
@@ -387,13 +503,20 @@ def show_available_tests():
                 with col2:
                     st.write(f"⏱️ {test[3]} mins | 📍 {test[4]} marks")
                 with col3:
-                    if st.button(f"Start Test", key=f"avail_test_{test[0]}"):
-                        st.session_state.current_test = test[0]
-                        st.rerun()
+                    test_id = test[0]
+                    attempt_status = get_student_test_attempt_status(test_id, st.session_state.user_id)
+                    if attempt_status in ('submitted', 'auto_submitted'):
+                        st.warning("You have already attempted this test. You can view your score in My Results.")
+                    elif attempt_status == 'in_progress':
+                        if st.button("Resume Test", key=f"avail_test_{test_id}"):
+                            st.session_state.current_test = test_id
+                            st.rerun()
+                    else:
+                        if st.button(f"Start Test", key=f"avail_test_{test_id}"):
+                            st.session_state.current_test = test_id
+                            st.rerun()
         else:
             st.info("No tests available at the moment.")
-
-
 def show_student_test():
     """Render the selected student test page"""
     test_id = st.session_state.get('current_test')
@@ -418,7 +541,7 @@ def show_student_test():
     test_name, total_marks, duration_minutes, start_time, end_time = test
     st.markdown(f"### 📝 Test: {test_name}")
     st.write(f"Total Marks: {total_marks} | Duration: {duration_minutes} minutes")
-    st.write(f"Start Time: {start_time} | End Time: {end_time}")
+    st.write(f"Start Time: {format_ist(start_time)} | End Time: {format_ist(end_time)}")
 
     if ENABLE_WEBCAM_INTEGRATION:
         render_webcam_proctoring()
@@ -433,7 +556,30 @@ def show_student_test():
     if 'test_attempt_started' not in st.session_state:
         st.session_state.test_attempt_started = False
 
+    # Keep webcam visible while the student selects a test or begins it
+    if ENABLE_WEBCAM_INTEGRATION:
+        render_webcam_proctoring()
+
     if not st.session_state.test_attempt_started:
+        attempt_status = get_student_test_attempt_status(test_id, st.session_state.user_id)
+        if attempt_status in ('submitted', 'auto_submitted'):
+            st.warning("You have already attempted this test. You cannot retake it.")
+            if st.button("Return to Dashboard"):
+                st.session_state.current_test = None
+                st.session_state.page = None
+                st.rerun()
+            return
+
+        in_progress = get_in_progress_attempt(test_id, st.session_state.user_id)
+        if in_progress:
+            st.info("✅ Resuming your in-progress attempt. Keep your webcam enabled and finish the test.")
+            st.session_state.attempt_id = in_progress['attempt_id']
+            st.session_state.start_time = in_progress['start_time']
+            st.session_state.duration_minutes = duration_minutes
+            st.session_state.test_attempt_started = True
+            st.rerun()
+            return
+
         if st.button("Start Test", use_container_width=True):
             test_mgmt = get_test_management()
             attempt = test_mgmt.start_test_attempt(
@@ -458,6 +604,9 @@ def show_student_test():
     if not questions:
         st.info("No questions are configured for this test yet.")
         return
+
+    render_timer()
+
 
     if 'student_current_question' not in st.session_state:
         st.session_state.student_current_question = 0
@@ -971,7 +1120,7 @@ def show_faculty_tests():
                                 db.execute_query("UPDATE tests SET is_published = TRUE WHERE test_id = %s", (test[0],))
                                 db.disconnect()
                             st.success("✓ Test published successfully")
-                            st.experimental_rerun()
+                            st.rerun()
     else:
         st.info("No tests created yet. Use the Create New Test button above.")
 
