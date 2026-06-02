@@ -154,10 +154,10 @@ def seed_sample_data():
             """INSERT INTO tests 
                (test_name, subject_id, dept_id, created_by, total_marks, duration_minutes,
                 passing_marks, negative_marking_enabled, randomize_questions, randomize_options,
-                start_time, end_time, is_published)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                start_time, end_time, is_published, show_results)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             ("Data Structures Mid Term Test", 1, 1, 2, 100, 120, 40, True, True, True,
-             start_time, end_time, True)
+             start_time, end_time, True, True)
         )
         print("✓ Created sample test")
         

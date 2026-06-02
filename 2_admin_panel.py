@@ -90,14 +90,14 @@ with tab1:
                             db.execute_query(
                                 """INSERT INTO tests (test_name, subject_id, dept_id, created_by, 
                                    total_marks, duration_minutes, passing_marks, negative_marking_enabled,
-                                   randomize_questions, randomize_options, start_time, end_time, is_published)
-                                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)""",
+                                   randomize_questions, randomize_options, start_time, end_time, is_published, show_results)
+                                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                                 (test_name, subject_id, dept_id, st.session_state.user_id, total_marks,
                                  duration, passing_marks, negative_marking, randomize_q, randomize_opt,
-                                 start_datetime, end_datetime)
+                                 start_datetime, end_datetime, True, True)
                             )
                             db.disconnect()
-                            st.success("✓ Test draft created successfully. Add questions then publish it.")
+                            st.success("✓ Test created and published successfully. Add questions and update if needed.")
                     except Exception as e:
                         st.error(f"Error: {e}")
                 else:

@@ -364,12 +364,12 @@ with tab3:
                                (test_name, subject_id, dept_id, created_by, test_description,
                                 total_marks, duration_minutes, passing_marks, negative_marking_enabled,
                                 enable_fullscreen, enable_tab_warnings, randomize_questions, randomize_options,
-                                start_time, end_time)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                                start_time, end_time, is_published, show_results)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                             (test_name, subject_id, dept_id, st.session_state.user_id, test_description,
                              total_marks, duration, passing_marks, negative_marking,
                              enable_fullscreen, tab_warnings, randomize_q, randomize_opt,
-                             test_start_time, test_end_time)
+                             test_start_time, test_end_time, True, True)
                         )
                         
                         # Get the created test ID
@@ -378,8 +378,8 @@ with tab3:
                         
                         db.disconnect()
                         
-                        st.success(f"✓ Test draft created successfully! (ID: {test_id})")
-                        st.info("👉 Go to 'Manage Tests' tab and click '➕ Add Q' to add questions to this test before publishing it")
+                        st.success(f"✓ Test created and published successfully! (ID: {test_id})")
+                        st.info("👉 Go to 'Manage Tests' tab and click '➕ Add Q' to add questions to this test")
                     except Exception as e:
                         db.disconnect()
                         st.error(f"Error creating test: {str(e)}")

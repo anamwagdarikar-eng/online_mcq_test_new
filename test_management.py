@@ -17,8 +17,8 @@ class TestManagement:
                 """INSERT INTO tests (test_name, subject_id, dept_id, created_by, test_description,
                    total_marks, duration_minutes, passing_marks, negative_marking_enabled,
                    enable_fullscreen, enable_tab_warnings, start_time, end_time,
-                   randomize_questions, randomize_options) 
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   randomize_questions, randomize_options, is_published, show_results) 
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (test_data['test_name'], test_data['subject_id'], test_data['dept_id'],
                  test_data['created_by'], test_data.get('description', ''),
                  test_data.get('total_marks', 100), test_data.get('duration', 60),
@@ -26,7 +26,7 @@ class TestManagement:
                  test_data.get('fullscreen', True), test_data.get('tab_warnings', True),
                  test_data['start_time'], test_data['end_time'],
                  test_data.get('randomize_questions', True),
-                 test_data.get('randomize_options', True))
+                 test_data.get('randomize_options', True), True, True)
             )
 
             test = self.db.fetch_one("SELECT LASTVAL();")
