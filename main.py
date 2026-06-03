@@ -283,7 +283,7 @@ def fetch_available_tests_for_student(department, semester, student_ip):
     db = Database()
     if not db.connect():
         return [], []
-
+    # Fetch published tests first (don't rely on DB NOW() to avoid timezone issues)
     if department and semester is not None:
         tests = db.fetch_all(
             """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks,
@@ -292,7 +292,6 @@ def fetch_available_tests_for_student(department, semester, student_ip):
                JOIN subjects s ON t.subject_id = s.subject_id
                JOIN departments d ON t.dept_id = d.dept_id
                WHERE t.is_published = TRUE
-                 AND (NOW() BETWEEN t.start_time AND t.end_time OR t.start_time > NOW())
                  AND (LOWER(d.dept_name) = LOWER(%s) OR LOWER(d.dept_code) = LOWER(%s))
                  AND s.semester = %s
                ORDER BY t.start_time""",
@@ -304,13 +303,31 @@ def fetch_available_tests_for_student(department, semester, student_ip):
                           t.start_time, t.end_time, t.allowed_ips
                FROM tests t
                WHERE t.is_published = TRUE
-                 AND (NOW() BETWEEN t.start_time AND t.end_time OR t.start_time > NOW())
                ORDER BY t.start_time"""
         )
     db.disconnect()
 
-    accessible_tests = [test for test in tests if is_ip_allowed(test[7], student_ip)]
-    return accessible_tests, tests
+    # Time-based filtering: convert DB timestamps to IST and decide availability here
+    now = datetime.now(IST_ZONE)
+    time_filtered = []
+    for test in tests:
+        start_time = test[5]
+        end_time = test[6]
+        try:
+            start_ist = convert_to_ist(start_time) if start_time else None
+        except Exception:
+            start_ist = None
+        try:
+            end_ist = convert_to_ist(end_time) if end_time else None
+        except Exception:
+            end_ist = None
+
+        # Include tests that are currently live or scheduled for the future
+        if (start_ist and end_ist and start_ist <= now <= end_ist) or (start_ist and start_ist > now):
+            time_filtered.append(test)
+
+    accessible_tests = [test for test in time_filtered if is_ip_allowed(test[7], student_ip)]
+    return accessible_tests, time_filtered
 
 
 def get_time_remaining():
