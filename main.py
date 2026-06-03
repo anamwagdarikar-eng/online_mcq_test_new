@@ -212,12 +212,19 @@ def convert_to_ist(dt):
     if dt is None:
         return None
     if isinstance(dt, str):
+        # Try ISO first, then fall back to common DB string format
+        parsed = None
         try:
-            dt = datetime.fromisoformat(dt)
+            parsed = datetime.fromisoformat(dt)
         except ValueError:
-            return dt
+            try:
+                parsed = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return None
+        dt = parsed
+    # If datetime is naive (no tzinfo) assume it's stored in IST (database TIMESTAMP)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=IST_ZONE)
     return dt.astimezone(IST_ZONE)
 
 
@@ -341,7 +348,8 @@ def get_time_remaining():
             start_time = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
 
     if start_time.tzinfo is None:
-        start_time = start_time.replace(tzinfo=timezone.utc).astimezone(IST_ZONE)
+        # DB TIMESTAMP values are stored as naive datetimes (assumed IST)
+        start_time = start_time.replace(tzinfo=IST_ZONE)
 
     elapsed = (datetime.now(IST_ZONE) - start_time).total_seconds()
     remaining = st.session_state.duration_minutes * 60 - elapsed
