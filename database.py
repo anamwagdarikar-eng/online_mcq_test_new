@@ -214,6 +214,8 @@ class Database:
                 show_results BOOLEAN DEFAULT FALSE,
                 randomize_questions BOOLEAN DEFAULT TRUE,
                 randomize_options BOOLEAN DEFAULT TRUE,
+                allowed_ips TEXT,
+                access_password_hash VARCHAR(255),
                 allow_review BOOLEAN DEFAULT TRUE,
                 max_attempts INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -339,6 +341,8 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """,
+            "ALTER TABLE tests ADD COLUMN IF NOT EXISTS allowed_ips TEXT;",
+            "ALTER TABLE tests ADD COLUMN IF NOT EXISTS access_password_hash VARCHAR(255);",
             
             # Student Registry (for bulk enrollment)
             """

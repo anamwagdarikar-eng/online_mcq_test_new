@@ -102,6 +102,9 @@ def ensure_database_ready():
                     "Verify your database connection and try again."
                 )
             return True, "Database schema created and default users seeded."
+        # Apply schema updates for existing databases
+        db.execute_query("ALTER TABLE tests ADD COLUMN IF NOT EXISTS allowed_ips TEXT;")
+        db.execute_query("ALTER TABLE tests ADD COLUMN IF NOT EXISTS access_password_hash VARCHAR(255);")
         return True, ""
     finally:
         db.disconnect()
@@ -225,6 +228,27 @@ def format_ist(dt):
     return dt.strftime("%Y-%m-%d %H:%M:%S IST")
 
 
+def get_client_ip():
+    forwarded = os.environ.get("HTTP_X_FORWARDED_FOR") or os.environ.get("HTTP_CLIENT_IP")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = os.environ.get("HTTP_X_REAL_IP")
+    if real_ip:
+        return real_ip.strip()
+    return "127.0.0.1"
+
+
+def is_ip_allowed(allowed_ips, ip_address):
+    if not allowed_ips:
+        return True
+    allowed = [ip.strip() for ip in str(allowed_ips).split(",") if ip.strip()]
+    return ip_address in allowed
+
+
+def validate_four_digit_pin(pin):
+    return isinstance(pin, str) and pin.isdigit() and len(pin) == 4
+
+
 def get_student_test_attempt_status(test_id, student_id):
     db = Database()
     if not db.connect():
@@ -253,6 +277,40 @@ def get_in_progress_attempt(test_id, student_id):
     if not attempt:
         return None
     return {'attempt_id': attempt[0], 'start_time': attempt[1]}
+
+
+def fetch_available_tests_for_student(department, semester, student_ip):
+    db = Database()
+    if not db.connect():
+        return [], []
+
+    if department and semester is not None:
+        tests = db.fetch_all(
+            """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks,
+                          t.start_time, t.end_time, t.allowed_ips
+               FROM tests t
+               JOIN subjects s ON t.subject_id = s.subject_id
+               JOIN departments d ON t.dept_id = d.dept_id
+               WHERE t.is_published = TRUE
+                 AND (NOW() BETWEEN t.start_time AND t.end_time OR t.start_time > NOW())
+                 AND (LOWER(d.dept_name) = LOWER(%s) OR LOWER(d.dept_code) = LOWER(%s))
+                 AND s.semester = %s
+               ORDER BY t.start_time""",
+            (department, department, semester)
+        )
+    else:
+        tests = db.fetch_all(
+            """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks,
+                          t.start_time, t.end_time, t.allowed_ips
+               FROM tests t
+               WHERE t.is_published = TRUE
+                 AND (NOW() BETWEEN t.start_time AND t.end_time OR t.start_time > NOW())
+               ORDER BY t.start_time"""
+        )
+    db.disconnect()
+
+    accessible_tests = [test for test in tests if is_ip_allowed(test[7], student_ip)]
+    return accessible_tests, tests
 
 
 def get_time_remaining():
@@ -349,30 +407,33 @@ def show_login():
             security = get_security()
             
             # Get client IP
-            ip_address = "192.168.1.1"  # In production, get from request headers
+            ip_address = get_client_ip()
             
             # Attempt login
             result = auth.login_user(username, password, ip_address)
             
             if result['success']:
-                st.session_state.session_token = result['session_token']
-                st.session_state.user_id = result['user_id']
-                st.session_state.user_role = result['role']
-                st.session_state.username = result['username']
-                st.session_state.department = result.get('department')
-                st.session_state.semester = result.get('semester')
-                
-                # Log action
-                security.log_audit(
-                    result['user_id'],
-                    'LOGIN',
-                    f'User {username} logged in',
-                    ip_address,
-                    'Mozilla/5.0'
-                )
-                
-                st.success("✓ Login successful!")
-                st.rerun()
+                if result['role'] != role:
+                    st.error("✗ Selected role does not match your account role.")
+                else:
+                    st.session_state.session_token = result['session_token']
+                    st.session_state.user_id = result['user_id']
+                    st.session_state.user_role = result['role']
+                    st.session_state.username = result['username']
+                    st.session_state.department = result.get('department')
+                    st.session_state.semester = result.get('semester')
+                    
+                    # Log action
+                    security.log_audit(
+                        result['user_id'],
+                        'LOGIN',
+                        f'User {username} logged in',
+                        ip_address,
+                        'Mozilla/5.0'
+                    )
+                    
+                    st.success("✓ Login successful!")
+                    st.rerun()
             else:
                 st.error(f"✗ {result['message']}")
         
@@ -418,84 +479,17 @@ def show_student_dashboard():
         show_my_results()
     else:
         st.markdown("### 📚 Available Tests")
-        db = Database()
-        if db.connect():
-            student_semester = normalize_semester(st.session_state.semester)
-            if st.session_state.department and student_semester is not None:
-                tests = db.fetch_all(
-                    """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks, t.start_time, t.end_time
-                       FROM tests t
-                       JOIN subjects s ON t.subject_id = s.subject_id
-                       JOIN departments d ON t.dept_id = d.dept_id
-                       WHERE t.is_published = TRUE
-                         AND (NOW() BETWEEN t.start_time AND t.end_time OR t.start_time > NOW())
-                         AND (LOWER(d.dept_name) = LOWER(%s) OR LOWER(d.dept_code) = LOWER(%s))
-                         AND s.semester = %s
-                       ORDER BY t.start_time""",
-                    (st.session_state.department, st.session_state.department, student_semester)
-                )
-            else:
-                tests = db.fetch_all(
-                    """SELECT test_id, test_name, subject_id, duration_minutes, total_marks, start_time, end_time
-                       FROM tests WHERE is_published = TRUE AND (NOW() BETWEEN start_time AND end_time OR start_time > NOW())
-                       ORDER BY start_time"""
-                )
-            db.disconnect()
-            
-            if tests:
-                now = datetime.now()
-                for test in tests:
-                    status = "Upcoming" if test[5] and test[5] > now else "Live"
-                    col1, col2, col3 = st.columns([2, 1, 1])
-                    with col1:
-                        st.write(f"**{test[1]}** — {status}")
-                    with col2:
-                        st.write(f"⏱️ {test[3]} mins | 📍 {test[4]} marks")
-                    with col3:
-                        test_id = test[0]
-                        attempt_status = get_student_test_attempt_status(test_id, st.session_state.user_id)
-                        if attempt_status in ('submitted', 'auto_submitted'):
-                            st.warning("You have already attempted this test. You can view your score in My Results.")
-                        elif attempt_status == 'in_progress':
-                            if st.button("Resume Test", key=f"avail_test_{test_id}"):
-                                st.session_state.current_test = test_id
-                                st.rerun()
-                        else:
-                            if st.button(f"Start Test", key=f"avail_test_{test_id}"):
-                                st.session_state.current_test = test_id
-                                st.rerun()
-            else:
-                st.info("No tests available at the moment.")
-
-def show_available_tests():
-    """Show available tests"""
-    st.markdown("### 📝 Available Tests")
-    db = Database()
-    if db.connect():
         student_semester = normalize_semester(st.session_state.semester)
-        if st.session_state.department and student_semester is not None:
-            tests = db.fetch_all(
-                """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks, t.start_time, t.end_time
-                   FROM tests t
-                   JOIN subjects s ON t.subject_id = s.subject_id
-                   JOIN departments d ON t.dept_id = d.dept_id
-                   WHERE t.is_published = TRUE
-                     AND (NOW() BETWEEN t.start_time AND t.end_time OR t.start_time > NOW())
-                     AND (LOWER(d.dept_name) = LOWER(%s) OR LOWER(d.dept_code) = LOWER(%s))
-                     AND s.semester = %s
-                   ORDER BY t.start_time""",
-                (st.session_state.department, st.session_state.department, student_semester)
-            )
-        else:
-            tests = db.fetch_all(
-                """SELECT test_id, test_name, subject_id, duration_minutes, total_marks, start_time, end_time
-                   FROM tests WHERE is_published = TRUE AND (NOW() BETWEEN start_time AND end_time OR start_time > NOW()) ORDER BY start_time"""
-            )
-        db.disconnect()
+        current_ip = get_client_ip()
+        accessible_tests, all_tests = fetch_available_tests_for_student(
+            st.session_state.department,
+            student_semester,
+            current_ip
+        )
 
-        if tests:
+        if accessible_tests:
             now = datetime.now()
-            for test in tests:
+            for test in accessible_tests:
                 status = "Upcoming" if test[5] and test[5] > now else "Live"
                 col1, col2, col3 = st.columns([2, 1, 1])
                 with col1:
@@ -515,8 +509,48 @@ def show_available_tests():
                         if st.button(f"Start Test", key=f"avail_test_{test_id}"):
                             st.session_state.current_test = test_id
                             st.rerun()
+        elif all_tests:
+            st.warning("Tests are scheduled, but your current network IP is not authorized for access. Contact the administrator.")
         else:
             st.info("No tests available at the moment.")
+
+def show_available_tests():
+    """Show available tests"""
+    st.markdown("### 📝 Available Tests")
+    student_semester = normalize_semester(st.session_state.semester)
+    current_ip = get_client_ip()
+    accessible_tests, all_tests = fetch_available_tests_for_student(
+        st.session_state.department,
+        student_semester,
+        current_ip
+    )
+
+    if accessible_tests:
+        now = datetime.now()
+        for test in accessible_tests:
+            status = "Upcoming" if test[5] and test[5] > now else "Live"
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                st.write(f"**{test[1]}** — {status}")
+            with col2:
+                st.write(f"⏱️ {test[3]} mins | 📍 {test[4]} marks")
+            with col3:
+                test_id = test[0]
+                attempt_status = get_student_test_attempt_status(test_id, st.session_state.user_id)
+                if attempt_status in ('submitted', 'auto_submitted'):
+                    st.warning("You have already attempted this test. You can view your score in My Results.")
+                elif attempt_status == 'in_progress':
+                    if st.button("Resume Test", key=f"avail_test_{test_id}"):
+                        st.session_state.current_test = test_id
+                        st.rerun()
+                else:
+                    if st.button(f"Start Test", key=f"avail_test_{test_id}"):
+                        st.session_state.current_test = test_id
+                        st.rerun()
+    elif all_tests:
+        st.warning("Tests are scheduled, but your current network IP is not authorized for access. Contact the administrator.")
+    else:
+        st.info("No tests available at the moment.")
 def show_student_test():
     """Render the selected student test page"""
     test_id = st.session_state.get('current_test')
@@ -527,7 +561,7 @@ def show_student_test():
     db = Database()
     if db.connect():
         test = db.fetch_one(
-            "SELECT test_name, total_marks, duration_minutes, start_time, end_time FROM tests WHERE test_id = %s",
+            "SELECT test_name, total_marks, duration_minutes, start_time, end_time, allowed_ips, access_password_hash FROM tests WHERE test_id = %s",
             (test_id,)
         )
         db.disconnect()
@@ -538,10 +572,15 @@ def show_student_test():
         st.error("Unable to load the selected test.")
         return
 
-    test_name, total_marks, duration_minutes, start_time, end_time = test
+    test_name, total_marks, duration_minutes, start_time, end_time, allowed_ips, access_password_hash = test
     st.markdown(f"### 📝 Test: {test_name}")
     st.write(f"Total Marks: {total_marks} | Duration: {duration_minutes} minutes")
     st.write(f"Start Time: {format_ist(start_time)} | End Time: {format_ist(end_time)}")
+
+    if allowed_ips:
+        st.info(f"This test is restricted to these IP addresses: {allowed_ips}")
+    if access_password_hash:
+        st.info("This test requires a 4-digit password provided by the administrator.")
 
     if ENABLE_WEBCAM_INTEGRATION:
         render_webcam_proctoring()
@@ -580,23 +619,56 @@ def show_student_test():
             st.rerun()
             return
 
-        if st.button("Start Test", use_container_width=True):
-            test_mgmt = get_test_management()
-            attempt = test_mgmt.start_test_attempt(
-                test_id,
-                st.session_state.user_id,
-                "127.0.0.1",
-                "streamlit"
-            )
-            if attempt:
-                st.session_state.attempt_id = attempt['attempt_id']
-                st.session_state.duration_minutes = attempt['duration_minutes']
-                st.session_state.start_time = attempt['start_time']
-                st.session_state.test_attempt_started = True
-                st.success("✓ Test attempt started")
-                st.rerun()
-            else:
-                st.error("Unable to start the test attempt. Please contact admin.")
+        current_ip = get_client_ip()
+        if not is_ip_allowed(allowed_ips, current_ip):
+            st.error("Your current network IP is not authorized to access this test. Contact the admin for access.")
+            return
+
+        if access_password_hash:
+            with st.form("start_test_form"):
+                entered_password = st.text_input("Enter 4-digit test password", type="password")
+                start = st.form_submit_button("Start Test", use_container_width=True)
+
+            if start:
+                if not validate_four_digit_pin(entered_password):
+                    st.error("Please enter the 4-digit test password provided by your admin.")
+                elif not get_auth().verify_password(entered_password, access_password_hash):
+                    st.error("Incorrect test password. Please check with your administrator.")
+                else:
+                    test_mgmt = get_test_management()
+                    attempt = test_mgmt.start_test_attempt(
+                        test_id,
+                        st.session_state.user_id,
+                        current_ip,
+                        "streamlit"
+                    )
+                    if attempt:
+                        st.session_state.attempt_id = attempt['attempt_id']
+                        st.session_state.duration_minutes = attempt['duration_minutes']
+                        st.session_state.start_time = attempt['start_time']
+                        st.session_state.test_attempt_started = True
+                        st.success("✓ Test attempt started")
+                        st.rerun()
+                    else:
+                        st.error("Unable to start the test attempt. Please contact admin.")
+        else:
+            if st.button("Start Test", use_container_width=True):
+                test_mgmt = get_test_management()
+                attempt = test_mgmt.start_test_attempt(
+                    test_id,
+                    st.session_state.user_id,
+                    current_ip,
+                    "streamlit"
+                )
+                if attempt:
+                    st.session_state.attempt_id = attempt['attempt_id']
+                    st.session_state.duration_minutes = attempt['duration_minutes']
+                    st.session_state.start_time = attempt['start_time']
+                    st.session_state.test_attempt_started = True
+                    st.success("✓ Test attempt started")
+                    st.rerun()
+                else:
+                    st.error("Unable to start the test attempt. Please contact admin.")
         return
 
     test_mgmt = get_test_management()
@@ -726,25 +798,35 @@ def show_create_test():
         negative_marking = st.checkbox("Negative Marking", value=True)
         randomize_q = st.checkbox("Randomize Questions", value=True)
         randomize_opt = st.checkbox("Randomize Options", value=True)
+        allowed_ips = st.text_input(
+            "Allowed IP Addresses",
+            placeholder="Comma-separated IP addresses allowed to access this test",
+        )
+        password_pin = st.text_input("Test Password (4 digits)", type="password")
 
         if st.form_submit_button("Create Test", use_container_width=True):
             if test_name and subject_id:
-                start_datetime = datetime.combine(start_date, start_time)
-                end_datetime = datetime.combine(end_date, end_time)
-                db = Database()
-                if db.connect():
-                    db.execute_query(
-                        """INSERT INTO tests (test_name, subject_id, dept_id, created_by, total_marks,
-                           duration_minutes, passing_marks, negative_marking_enabled, randomize_questions,
-                           randomize_options, start_time, end_time, is_published, show_results)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, TRUE)""",
-                        (test_name, subject_id, dept_id, st.session_state.user_id,
-                         total_marks, duration, passing_marks, negative_marking,
-                         randomize_q, randomize_opt, start_datetime, end_datetime)
-                    )
-                    db.disconnect()
-                    st.success("✓ Test created and published automatically. Students can now see it if timing and branch match.")
-                    st.session_state.page = None
+                if password_pin and not validate_four_digit_pin(password_pin):
+                    st.error("Test password must be exactly 4 numeric digits.")
+                else:
+                    start_datetime = datetime.combine(start_date, start_time)
+                    end_datetime = datetime.combine(end_date, end_time)
+                    password_hash = get_auth().hash_password(password_pin) if password_pin else None
+                    db = Database()
+                    if db.connect():
+                        db.execute_query(
+                            """INSERT INTO tests (test_name, subject_id, dept_id, created_by, total_marks,
+                               duration_minutes, passing_marks, negative_marking_enabled, randomize_questions,
+                               randomize_options, allowed_ips, access_password_hash, start_time, end_time, is_published, show_results)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, TRUE)""",
+                            (test_name, subject_id, dept_id, st.session_state.user_id,
+                             total_marks, duration, passing_marks, negative_marking,
+                             randomize_q, randomize_opt, allowed_ips, password_hash,
+                             start_datetime, end_datetime)
+                        )
+                        db.disconnect()
+                        st.success("✓ Test created and published automatically. Students can now see it if timing and branch match.")
+                        st.session_state.page = None
             else:
                 st.error("Please fill required fields")
 
