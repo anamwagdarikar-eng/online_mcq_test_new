@@ -299,7 +299,10 @@ def fetch_available_tests_for_student(department, semester, student_ip):
                JOIN subjects s ON t.subject_id = s.subject_id
                JOIN departments d ON t.dept_id = d.dept_id
                WHERE t.is_published = TRUE
-                 AND (LOWER(d.dept_name) = LOWER(%s) OR LOWER(d.dept_code) = LOWER(%s))
+                 AND (
+                     LOWER(regexp_replace(d.dept_name, '[^a-z0-9]+', '', 'g')) = LOWER(regexp_replace(%s, '[^a-z0-9]+', '', 'g'))
+                     OR LOWER(d.dept_code) = LOWER(%s)
+                 )
                  AND s.semester = %s
                ORDER BY t.start_time""",
             (department, department, semester)
