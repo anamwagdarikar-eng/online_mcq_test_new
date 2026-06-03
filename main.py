@@ -294,7 +294,7 @@ def fetch_available_tests_for_student(department, semester, student_ip):
     if department and semester is not None:
         tests = db.fetch_all(
             """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks,
-                          t.start_time, t.end_time, t.allowed_ips
+                          t.start_time, t.end_time, t.allowed_ips, d.dept_name, d.dept_code, s.semester
                FROM tests t
                JOIN subjects s ON t.subject_id = s.subject_id
                JOIN departments d ON t.dept_id = d.dept_id
@@ -307,7 +307,7 @@ def fetch_available_tests_for_student(department, semester, student_ip):
     else:
         tests = db.fetch_all(
             """SELECT t.test_id, t.test_name, t.subject_id, t.duration_minutes, t.total_marks,
-                          t.start_time, t.end_time, t.allowed_ips
+                          t.start_time, t.end_time, t.allowed_ips, NULL AS dept_name, NULL AS dept_code, NULL AS semester
                FROM tests t
                WHERE t.is_published = TRUE
                ORDER BY t.start_time"""
@@ -334,6 +334,7 @@ def fetch_available_tests_for_student(department, semester, student_ip):
             time_filtered.append(test)
 
     accessible_tests = [test for test in time_filtered if is_ip_allowed(test[7], student_ip)]
+    # Return accessible tests and the time-filtered set for diagnostics
     return accessible_tests, time_filtered
 
 
@@ -536,6 +537,21 @@ def show_student_dashboard():
                             st.rerun()
         elif all_tests:
             st.warning("Tests are scheduled, but your current network IP is not authorized for access. Contact the administrator.")
+            # Diagnostic details to help debug why tests are not accessible
+            st.markdown("**Debug: Why tests are not accessible for you**")
+            st.write("- Current user department:", st.session_state.department)
+            st.write("- Current user semester:", student_semester)
+            st.write("- Your detected IP:", current_ip)
+            now_ist = datetime.now(IST_ZONE)
+            for test in all_tests:
+                start_ist = convert_to_ist(test[5])
+                end_ist = convert_to_ist(test[6])
+                ip_allowed = is_ip_allowed(test[7], current_ip)
+                status = "Upcoming" if start_ist and start_ist > now_ist else ("Live" if start_ist and end_ist and start_ist <= now_ist <= end_ist else ("Ended" if end_ist and end_ist < now_ist else "Unknown"))
+                st.write(f"- Test `{test[0]}`: **{test[1]}** — {status}")
+                st.write(f"  - Start: {format_ist(start_ist)} | End: {format_ist(end_ist)}")
+                st.write(f"  - Allowed IPs (test): {test[7]}")
+                st.write(f"  - IP allowed for you: {ip_allowed}")
         else:
             st.info("No tests available at the moment.")
 
@@ -574,6 +590,21 @@ def show_available_tests():
                         st.rerun()
     elif all_tests:
         st.warning("Tests are scheduled, but your current network IP is not authorized for access. Contact the administrator.")
+        # Diagnostic details for debugging
+        st.markdown("**Debug: Why tests are not accessible for you**")
+        st.write("- Current user department:", st.session_state.department)
+        st.write("- Current user semester:", student_semester)
+        st.write("- Your detected IP:", current_ip)
+        now_ist = datetime.now(IST_ZONE)
+        for test in all_tests:
+            start_ist = convert_to_ist(test[5])
+            end_ist = convert_to_ist(test[6])
+            ip_allowed = is_ip_allowed(test[7], current_ip)
+            status = "Upcoming" if start_ist and start_ist > now_ist else ("Live" if start_ist and end_ist and start_ist <= now_ist <= end_ist else ("Ended" if end_ist and end_ist < now_ist else "Unknown"))
+            st.write(f"- Test `{test[0]}`: **{test[1]}** — {status}")
+            st.write(f"  - Start: {format_ist(start_ist)} | End: {format_ist(end_ist)}")
+            st.write(f"  - Allowed IPs (test): {test[7]}")
+            st.write(f"  - IP allowed for you: {ip_allowed}")
     else:
         st.info("No tests available at the moment.")
 def show_student_test():
