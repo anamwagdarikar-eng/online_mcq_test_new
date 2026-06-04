@@ -780,7 +780,15 @@ def show_student_test():
         return
 
     test_mgmt = get_test_management()
-    questions = test_mgmt.get_test_questions(test_id, randomize=True)
+    
+    # Cache questions in session state to prevent re-randomization on reruns
+    if 'test_questions_cache' not in st.session_state or st.session_state.get('test_questions_cache_id') != test_id:
+        questions = test_mgmt.get_test_questions(test_id, randomize=True)
+        st.session_state.test_questions_cache = questions
+        st.session_state.test_questions_cache_id = test_id
+    else:
+        questions = st.session_state.test_questions_cache
+    
     if not questions:
         st.info("No questions are configured for this test yet.")
         return
@@ -836,15 +844,15 @@ def show_student_test():
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("⬅️ Previous") and current_index > 0:
+        if st.button("⬅️ Previous", key=f"btn_prev_{test_id}_{current_index}") and current_index > 0:
             st.session_state.student_current_question -= 1
             st.rerun()
     with col2:
-        if st.button("Next ➡️") and current_index < len(questions) - 1:
+        if st.button("Next ➡️", key=f"btn_next_{test_id}_{current_index}") and current_index < len(questions) - 1:
             st.session_state.student_current_question += 1
             st.rerun()
     with col3:
-        if st.button("✅ Submit Test", use_container_width=True):
+        if st.button("✅ Submit Test", key=f"btn_submit_{test_id}_{current_index}", use_container_width=True):
             result = test_mgmt.submit_test(test_id, st.session_state.user_id)
             if result.get('success'):
                 st.success("✓ Test submitted successfully")
