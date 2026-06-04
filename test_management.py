@@ -1,6 +1,6 @@
 import random
 from database import Database
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from config import AUTO_SUBMIT_ON_TIMEOUT, ENABLE_NEGATIVE_MARKING, NEGATIVE_MARKING_PERCENTAGE
 
 class TestManagement:
@@ -327,11 +327,13 @@ class TestManagement:
             attempt_id = attempt[0] if attempt else None
 
             self.db.disconnect()
+            ist_zone = timezone(timedelta(hours=5, minutes=30))
+            now_ist = datetime.now(ist_zone)
             return {
                 'attempt_id': attempt_id,
                 'duration_minutes': duration,
-                'start_time': datetime.now(),
-                'end_time': datetime.now() + timedelta(minutes=duration)
+                'start_time': now_ist,
+                'end_time': now_ist + timedelta(minutes=duration)
             }
         except Exception as e:
             self.db.disconnect()

@@ -147,6 +147,34 @@ st.markdown("""
         text-align: center;
         padding: 10px;
     }
+    .timer-clock {
+        display: inline-block;
+        background: #1f2937;
+        color: #f8fafc;
+        font-family: 'Courier New', Courier, monospace;
+        border-radius: 12px;
+        padding: 16px 24px;
+        margin-bottom: 20px;
+        letter-spacing: 0.1em;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+    }
+    .timer-clock .timer-label {
+        font-size: 14px;
+        color: #94a3b8;
+        margin-bottom: 4px;
+    }
+    .timer-clock .timer-value {
+        font-size: 42px;
+        font-weight: 700;
+    }
+    .timer-warning {
+        color: #d97706;
+        font-weight: bold;
+    }
+    .timer-normal {
+        color: #10b981;
+        font-weight: bold;
+    }
     .question-container {
         background-color: #f8f9fa;
         padding: 20px;
@@ -354,6 +382,8 @@ def get_time_remaining():
     if start_time.tzinfo is None:
         # DB TIMESTAMP values are stored as naive datetimes (assumed IST)
         start_time = start_time.replace(tzinfo=IST_ZONE)
+    else:
+        start_time = start_time.astimezone(IST_ZONE)
 
     elapsed = (datetime.now(IST_ZONE) - start_time).total_seconds()
     remaining = st.session_state.duration_minutes * 60 - elapsed
@@ -390,11 +420,13 @@ def render_timer():
         st.session_state.responses = {}
         st.stop()
 
-    label = f"⏰ Time Remaining: {format_time(remaining)}"
-    if remaining < 300:
-        st.markdown(f'<div class="timer-warning">{label}</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="timer-normal">{label}</div>', unsafe_allow_html=True)
+    timer_html = f"""
+    <div class='timer-clock'>
+        <div class='timer-label'>Time Remaining</div>
+        <div class='timer-value'>{format_time(remaining)}</div>
+    </div>
+    """
+    st.markdown(timer_html, unsafe_allow_html=True)
     return remaining
 
 
@@ -653,6 +685,9 @@ def show_student_test():
 
     if 'test_attempt_started' not in st.session_state:
         st.session_state.test_attempt_started = False
+
+    if st.session_state.test_attempt_started and st.session_state.current_test == test_id:
+        st_autorefresh(interval=1000, key=f"timer_refresh_{test_id}")
 
     if not st.session_state.test_attempt_started:
         attempt_status = get_student_test_attempt_status(test_id, st.session_state.user_id)
