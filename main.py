@@ -213,6 +213,12 @@ if 'current_test' not in st.session_state:
     st.session_state.current_test = None
 if 'attempt_id' not in st.session_state:
     st.session_state.attempt_id = None
+if 'start_time' not in st.session_state:
+    st.session_state.start_time = None
+if 'duration_minutes' not in st.session_state:
+    st.session_state.duration_minutes = None
+if 'test_attempt_started' not in st.session_state:
+    st.session_state.test_attempt_started = False
 
 WEBCAM_AVAILABLE = hasattr(st, 'camera_input')
 
@@ -370,24 +376,26 @@ def fetch_available_tests_for_student(department, semester, student_ip):
 
 
 def get_time_remaining():
-    if st.session_state.start_time is None or st.session_state.duration_minutes is None:
+    try:
+        if not st.session_state.get('start_time') or not st.session_state.get('duration_minutes'):
+            return None
+        start_time = st.session_state.start_time
+        if isinstance(start_time, str):
+            try:
+                start_time = datetime.fromisoformat(start_time)
+            except ValueError:
+                start_time = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
+
+        if start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=IST_ZONE)
+        else:
+            start_time = start_time.astimezone(IST_ZONE)
+
+        elapsed = (datetime.now(IST_ZONE) - start_time).total_seconds()
+        remaining = st.session_state.duration_minutes * 60 - elapsed
+        return max(0, remaining)
+    except Exception as e:
         return None
-    start_time = st.session_state.start_time
-    if isinstance(start_time, str):
-        try:
-            start_time = datetime.fromisoformat(start_time)
-        except ValueError:
-            start_time = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
-
-    if start_time.tzinfo is None:
-        # DB TIMESTAMP values are stored as naive datetimes (assumed IST)
-        start_time = start_time.replace(tzinfo=IST_ZONE)
-    else:
-        start_time = start_time.astimezone(IST_ZONE)
-
-    elapsed = (datetime.now(IST_ZONE) - start_time).total_seconds()
-    remaining = st.session_state.duration_minutes * 60 - elapsed
-    return max(0, remaining)
 
 
 def format_time(seconds):
@@ -402,52 +410,43 @@ def render_timer():
     if remaining is None:
         return None
 
-    if remaining <= 0:
-        st.error("⏱️ Time's up! Your test is being auto-submitted now.")
-        if AUTO_SUBMIT_ON_TIMEOUT and st.session_state.get('current_test') is not None:
-            test_mgmt = get_test_management()
-            result = test_mgmt.submit_test(st.session_state.current_test, st.session_state.user_id)
-            if result.get('success'):
-                output = result['results']
-                st.success("✓ Test auto-submitted successfully.")
-                st.markdown(f"**Score:** {output['marks_obtained']:.2f} / {output['total_marks']}")
-                st.markdown(f"**Grade:** {output['grade']} | **Percentage:** {output['percentage']}%")
-            else:
-                st.error("Unable to auto-submit the test. Please contact support.")
-        st.session_state.current_test = None
-        st.session_state.test_attempt_started = False
-        st.session_state.attempt_id = None
-        st.session_state.responses = {}
-        st.stop()
-
     timer_element_id = f"timer_value_{st.session_state.get('current_test', 'test')}"
     timer_html = f"""
     <div class='timer-clock'>
-        <div class='timer-label'>Time Remaining</div>
+        <div class='timer-label'>⏱️ Time Remaining</div>
         <div class='timer-value' id='{timer_element_id}'>{format_time(remaining)}</div>
     </div>
     <script>
-    (() => {{
-        const element = document.getElementById('{timer_element_id}');
+    (function() {{
+        const elementId = '{timer_element_id}';
+        const element = document.getElementById(elementId);
         if (!element) return;
-        let remaining = {int(remaining)};
+        
+        let remainingSeconds = {int(remaining)};
         const pad = (value) => String(value).padStart(2, '0');
-        const update = () => {{
-            if (remaining <= 0) {{
+        
+        const updateTimer = () => {{
+            if (remainingSeconds <= 0) {{
                 element.textContent = '00:00:00';
-                window.location.reload();
+                element.parentElement.style.color = '#ef4444';
+                setTimeout(() => window.location.reload(), 500);
                 return;
             }}
-            const hours = Math.floor(remaining / 3600);
-            const minutes = Math.floor((remaining % 3600) / 60);
-            const seconds = remaining % 60;
+            const hours = Math.floor(remainingSeconds / 3600);
+            const minutes = Math.floor((remainingSeconds % 3600) / 60);
+            const seconds = remainingSeconds % 60;
             element.textContent = `${{pad(hours)}}:${{pad(minutes)}}:${{pad(seconds)}}`;
-            remaining -= 1;
+            
+            if (remainingSeconds < 300) {{
+                element.parentElement.style.color = '#d97706';
+            }}
+            remainingSeconds -= 1;
         }};
-        update();
-        if (remaining > 0) {{
-            window.setInterval(update, 1000);
-        }}
+        
+        updateTimer();
+        const timerInterval = setInterval(updateTimer, 1000);
+        
+        window.addEventListener('beforeunload', () => clearInterval(timerInterval));
     }})();
     </script>
     """
@@ -708,9 +707,6 @@ def show_student_test():
         st.session_state.responses = {}
         st.rerun()
 
-    if 'test_attempt_started' not in st.session_state:
-        st.session_state.test_attempt_started = False
-
     if not st.session_state.test_attempt_started:
         attempt_status = get_student_test_attempt_status(test_id, st.session_state.user_id)
         if attempt_status in ('submitted', 'auto_submitted'):
@@ -789,8 +785,25 @@ def show_student_test():
         st.info("No questions are configured for this test yet.")
         return
 
-    render_timer()
-
+    remaining_time = render_timer()
+    
+    # Check if time has expired and auto-submit
+    if remaining_time is not None and remaining_time <= 0:
+        if AUTO_SUBMIT_ON_TIMEOUT:
+            st.warning("⏱️ Time's up! Auto-submitting your test...")
+            result = test_mgmt.submit_test(test_id, st.session_state.user_id)
+            if result.get('success'):
+                output = result['results']
+                st.success("✓ Test auto-submitted successfully.")
+                st.markdown(f"**Score:** {output['marks_obtained']:.2f} / {output['total_marks']}")
+                st.markdown(f"**Grade:** {output['grade']} | **Percentage:** {output['percentage']}%")
+                st.session_state.current_test = None
+                st.session_state.test_attempt_started = False
+                st.session_state.attempt_id = None
+                st.session_state.responses = {}
+            else:
+                st.error("Unable to auto-submit the test. Please contact support.")
+        return
 
     if 'student_current_question' not in st.session_state:
         st.session_state.student_current_question = 0
