@@ -197,7 +197,7 @@ def render_webcam_proctoring():
         st.warning("⚠️ Webcam proctoring is enabled but not supported in this browser.")
         return False
 
-    picture = st.camera_input("📹 Webcam Proctoring - Please allow camera access.")
+    picture = st.camera_input("📹 Webcam Proctoring - Please allow camera access.", key="webcam_proctoring")
     if picture is not None:
         st.image(picture, caption="Webcam feed captured", use_column_width=True)
         st.success("✓ Webcam proctoring active")
