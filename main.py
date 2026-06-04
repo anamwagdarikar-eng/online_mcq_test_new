@@ -420,11 +420,36 @@ def render_timer():
         st.session_state.responses = {}
         st.stop()
 
+    timer_element_id = f"timer_value_{st.session_state.get('current_test', 'test')}"
     timer_html = f"""
     <div class='timer-clock'>
         <div class='timer-label'>Time Remaining</div>
-        <div class='timer-value'>{format_time(remaining)}</div>
+        <div class='timer-value' id='{timer_element_id}'>{format_time(remaining)}</div>
     </div>
+    <script>
+    (() => {{
+        const element = document.getElementById('{timer_element_id}');
+        if (!element) return;
+        let remaining = {int(remaining)};
+        const pad = (value) => String(value).padStart(2, '0');
+        const update = () => {{
+            if (remaining <= 0) {{
+                element.textContent = '00:00:00';
+                window.location.reload();
+                return;
+            }}
+            const hours = Math.floor(remaining / 3600);
+            const minutes = Math.floor((remaining % 3600) / 60);
+            const seconds = remaining % 60;
+            element.textContent = `${{pad(hours)}}:${{pad(minutes)}}:${{pad(seconds)}}`;
+            remaining -= 1;
+        }};
+        update();
+        if (remaining > 0) {{
+            window.setInterval(update, 1000);
+        }}
+    }})();
+    </script>
     """
     st.markdown(timer_html, unsafe_allow_html=True)
     return remaining
@@ -685,9 +710,6 @@ def show_student_test():
 
     if 'test_attempt_started' not in st.session_state:
         st.session_state.test_attempt_started = False
-
-    if st.session_state.test_attempt_started and st.session_state.current_test == test_id:
-        st_autorefresh(interval=1000, key=f"timer_refresh_{test_id}")
 
     if not st.session_state.test_attempt_started:
         attempt_status = get_student_test_attempt_status(test_id, st.session_state.user_id)
