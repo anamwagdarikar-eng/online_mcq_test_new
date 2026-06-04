@@ -654,10 +654,6 @@ def show_student_test():
     if 'test_attempt_started' not in st.session_state:
         st.session_state.test_attempt_started = False
 
-    # Keep webcam visible while the student selects a test or begins it
-    if ENABLE_WEBCAM_INTEGRATION:
-        render_webcam_proctoring()
-
     if not st.session_state.test_attempt_started:
         attempt_status = get_student_test_attempt_status(test_id, st.session_state.user_id)
         if attempt_status in ('submitted', 'auto_submitted'):
